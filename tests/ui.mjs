@@ -184,6 +184,11 @@ await phone(false);
 await visit(`/${encodeURIComponent(rw)}/`);
 taps = await ev(tap);
 check(taps && taps.one, `1400 px screen: /${rw}/: a line of the listing on one line`);
+// (A smaller computer screen: the upload line wraps, the page never scrolls sideways.)
+await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false }, sessionId);
+await visit(`/${encodeURIComponent(rw)}/`);
+const wide = await ev(`[document.documentElement.scrollWidth, document.documentElement.clientWidth]`);
+check(wide && wide[0] <= wide[1], `1024 px screen: /${rw}/: no sideways scroll (${wide && wide.join(' wide in ')})`);
 await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 await dav('DELETE', t);
 ws.close();

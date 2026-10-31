@@ -30,8 +30,8 @@
   .r > a ~ a { font-size: 12px; margin-left: 12px; }
 }
 </style>
-<pre>
-<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button> <button onclick="document.getElementById('fd').click()">Upload folder</button><input type="file" id="fd" webkitdirectory hidden onchange="upFolder()">  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
+<pre style="white-space: pre-wrap"><!-- (the upload line wraps where the window is too narrow for it, rather than scrolling sideways) -->
+<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button> <button onclick="document.getElementById('fd').click()">Upload folder</button><input type="file" id="fd" webkitdirectory hidden onchange="upFolder()">  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="56"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d" style="white-space: nowrap"></span><span id="s" style="display: block"></span>
 </pre><hr>
 <script>
 const msg = t => { document.getElementById('s').textContent = t ? '\n' + t : ''; }; // (a blank line above it)
