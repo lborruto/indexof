@@ -9,7 +9,7 @@ args=$QUERY_STRING
 if [ "$REQUEST_METHOD" = POST ] && [ -n "$CONTENT_LENGTH" ]; then args="$args&$(head -c "$CONTENT_LENGTH")"; fi
 list=$(set -f; IFS='&'; for kv in $args; do
   case "$kv" in (p=*) allowed_path "$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')")" ;; esac
-done | sort -u)
+done | sort -u | head -n 5000) # (5000 paths at most in one zip: a selection, not the disk)
 if [ -z "$list" ]; then printf 'Content-Type: text/plain\r\n\r\nnothing to zip\n'; exit 0; fi
 
 # Paths inside the zip: from the folder they all share, or from /data when they are in

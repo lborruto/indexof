@@ -450,6 +450,9 @@ expect_empty '/_space?p=/_search/'
 # link out of share, the hidden .uploads and the folder whose name ends with a line break (with
 # what is under it) are left out; -TT=x and * are stored as names.
 expect_body '/_zip?p=/' 'nothing to zip'
+# Only uploads may be big: a 2 MB zip request (thousands of paths) is refused before the helper.
+head -c 2100000 /dev/zero | tr '\0' 'a' | sed 's/^/p=/' > "$TMP/huge-zip-body"
+expect_status POST /_zip 413 --data-binary @"$TMP/huge-zip-body"
 expect_body '/_zip?p=/_search/' 'nothing to zip'
 expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
