@@ -33,6 +33,9 @@ server {
     secure_link_md5 "$secure_link_expires$uri ${INDEXOF_LINK_SECRET}";
     location = /_login { default_type text/html; alias /etc/nginx/pages/login.html; }
     location = /_upload { internal; default_type text/html; alias /etc/nginx/pages/upload.html; }
+    # The listings (nginx's own, the search's) get the line under them (add_after_body /_upload)
+    # and a viewport tag in their <head> (sub_filter), for a phone to show them at its own width.
+    # Listings only: a file is always served as it is.
     # The pages' settings: the folders (read-only or writable) and the scp destination.
     location = /_settings {
         if ($indexof_cookie = 0) { return 403; }
@@ -93,6 +96,7 @@ server {
         proxy_pass $helper/cgi-bin/search$is_args$args;
         proxy_read_timeout 120s;
         add_after_body /_upload;
+        sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
         add_header Cache-Control no-store always;
     }
     location ~ /\. { deny all; }
@@ -106,6 +110,7 @@ server {
         autoindex_exact_size off;
         autoindex_localtime on;
         add_after_body /_upload;
+        sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
     }
     # Anything else is not a mounted folder.
     location / {

@@ -136,6 +136,7 @@ location = "/$name/" {
     autoindex_exact_size off;
     autoindex_localtime on;
     add_after_body /_upload;
+    sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
     dav_methods off;
 }
 location ^~ "/$name/" {
@@ -148,14 +149,15 @@ location ^~ "/$name/" {
         add_header X-Content-Type-Options nosniff always;
         $files
     }
-    # Folders: the listing, with the line under it (here only: a file of the folder, an .html
-    # one say, is served as it is, without the line).
+    # Folders: the listing, with the line under it and the viewport tag (here only: a file of
+    # the folder, an .html one say, is served as it is, without either).
     location ~ /\$ {
         if (\$indexof_cookie = 0) { return 302 /_login; }
         autoindex on;
         autoindex_exact_size off;
         autoindex_localtime on;
         add_after_body /_upload;
+        sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
         $(printf '%s' "$folders" | indent '    ')
     }
 }

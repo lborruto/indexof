@@ -3,7 +3,7 @@
 // read-only one, [rename] [delete] on lines inside a writable folder but never on a mounted
 // folder itself; the free space on the home page; [delete selected] [move selected] for ticked
 // lines of a writable folder only, and doing it; files dropped on the page uploaded (a drop
-// anywhere else doing nothing); what a file's name, [download] and [raw] do. Works in a folder of
+// anywhere else doing nothing); what a file's name, [download] and [raw] do; the pages on a phone. Works in a folder of
 // its own, ui-test, made in the writable folder and removed at the end. Drives a Chrome already
 // running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
 //
@@ -68,11 +68,14 @@ check(await ev(`document.getElementById('ws').hidden`), `${t}: no [delete select
 check(await tick(['a.txt', 'b.txt']), `${t}: ticked lines offer [delete selected] [move selected]`);
 // A file's name: the viewer for what it shows (a text file here), the browser for a PDF, else a
 // download; [download] (downloads) and [raw] (opens) on every file; a folder's name opens it.
-const line = n => `(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); if (!a) return null; const l = t => [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === t); const d = l('[download]'), r = l('[raw]'); return { href: a.getAttribute('href'), dl: a.hasAttribute('download'), d: d ? d.getAttribute('href') + ' ' + d.hasAttribute('download') : '', r: r ? r.getAttribute('href') + ' ' + r.hasAttribute('download') : '', view: !!(l('[view]') || l('[play]')) }; })()`;
+const line = n => `(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); if (!a) return null; const l = t => [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === t); const d = l('[download]'), r = l('[raw]'); const tab = x => x ? (x.getAttribute('target') || '') + ' ' + (x.getAttribute('rel') || '') : ''; return { href: a.getAttribute('href'), dl: a.hasAttribute('download'), tab: tab(a), dtab: tab(d), rtab: tab(r), d: d ? d.getAttribute('href') + ' ' + d.hasAttribute('download') : '', r: r ? r.getAttribute('href') + ' ' + r.hasAttribute('download') : '', view: !!(l('[view]') || l('[play]')) }; })()`;
 const txt = await ev(line('a.txt')), pdf = await ev(line('e.pdf')), bin = await ev(line('f.bin')), dir = await ev(line('sub/'));
 check(txt && txt.href === '/_play?f=' + encodeURIComponent(t + 'a.txt') && !txt.dl, `${t}a.txt: its name opens the viewer (${txt && txt.href})`);
 check(txt && txt.d === encodeURI(t + 'a.txt') + ' true' && txt.r === encodeURI(t + 'a.txt') + ' false' && !txt.view, `${t}a.txt: [download] downloads, [raw] opens, no [view] (${txt && txt.d}; ${txt && txt.r})`);
 check(pdf && pdf.href === 'e.pdf' && !pdf.dl, `${t}e.pdf: its name opens it in the browser (${pdf && pdf.href})`);
+// A PDF's name and every [raw] open in a new tab; the viewer's links and [download] stay in this one.
+check(pdf && pdf.tab === '_blank noopener' && pdf.rtab === '_blank noopener', `${t}e.pdf: its name and [raw] open in a new tab (${pdf && pdf.tab}; ${pdf && pdf.rtab})`);
+check(txt && txt.tab === ' ' && txt.dtab === ' ' && txt.rtab === '_blank noopener', `${t}a.txt: its name and [download] in this tab, [raw] in a new one (${JSON.stringify(txt && [txt.tab, txt.dtab, txt.rtab])})`);
 check(bin && bin.href === 'f.bin' && bin.dl && bin.d === encodeURI(t + 'f.bin') + ' true', `${t}f.bin (no preview): its name downloads it`);
 check(dir && dir.href === 'sub/' && !dir.dl && !dir.d, `${t}sub/: a folder's name opens the folder, no [download]`);
 // Delete selected: one confirm, naming the count, then gone.
@@ -98,6 +101,29 @@ await ev(drop);
 await sleep(4000);
 const dropped = await show(t);
 check(dropped.lines.some(l => l.includes('dropped.txt')) && (await (await dav('GET', t + 'dropped.txt')).text()) === 'dropped\n', `${t}: a file dropped on the page is uploaded and listed`);
+// A phone (390 px wide, Chrome's device mode): the viewport tag, no page wider than the screen,
+// [rename] and [delete] tall enough for a finger and apart; on a computer, a line still one line.
+const phone = on => send('Emulation.setDeviceMetricsOverride', on ? { width: 390, height: 844, deviceScaleFactor: 2, mobile: true } : { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
+const visit = async url => { await send('Page.navigate', { url: base + url }, sessionId); await sleep(2500); };
+const fits = () => ev(`(() => { const v = document.querySelector('meta[name=viewport]'), d = document.documentElement; return { vp: !!v && /width=device-width/.test(v.content), sw: d.scrollWidth, cw: d.clientWidth }; })()`);
+// (ui-test/'s line: its [rename] and [delete], their height, the room between them.)
+const tap = `(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'ui-test/'), l = n && n.parentNode; if (!l) return null;
+  const f = n => [...l.querySelectorAll('a')].find(a => a.textContent === n).getBoundingClientRect(), r = f('[rename]'), d = f('[delete]'), a = l.querySelector('a').getBoundingClientRect();
+  return { h: Math.round(Math.min(r.height, d.height)), gap: Math.round(d.top >= r.bottom ? 99 : d.left - r.right), one: Math.abs(a.top - d.top) < 2 }; })()`;
+await phone(true);
+for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['/_login', '/_login']]) {
+  await visit(url);
+  const f = await fits();
+  check(f.vp && f.sw <= f.cw, `390 px phone: ${what}: ${f.vp ? 'viewport tag' : 'NO viewport tag'}, ${f.sw} px wide in ${f.cw}`);
+}
+await visit(`/${encodeURIComponent(rw)}/`);
+let taps = await ev(tap);
+check(taps && taps.h >= 32 && taps.gap >= 16, `390 px phone: /${rw}/: [rename] and [delete] ${taps && taps.h} px tall, ${taps && taps.gap} px apart`);
+await phone(false);
+await visit(`/${encodeURIComponent(rw)}/`);
+taps = await ev(tap);
+check(taps && taps.one, `1400 px screen: /${rw}/: a line of the listing on one line`);
+await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 await dav('DELETE', t);
 ws.close();
 process.exit(failed ? 1 : 0);

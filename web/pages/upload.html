@@ -1,3 +1,22 @@
+<style>
+/* A phone (the listing's own page has no style): the same lines, wrapped to the width. A line of
+   the listing: the box and the name, then the date, the size and the links under it, big enough
+   for a finger and apart enough not to hit the next one. */
+@media (max-width: 700px) {
+  h1 { font-size: 1.5em; overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+  .r { display: block; white-space: normal; padding: 2px 0 2px 35px; text-indent: -35px; }
+  .r * { text-indent: 0; }
+  pre a { display: inline-block; padding: 8px 0; }
+  .r > a:first-of-type { display: inline; line-height: 2; }
+  .r > a:first-of-type::after { content: '\A'; white-space: pre; }
+  .r > a ~ a { margin-right: 10px; }
+  input[type=checkbox] { width: 20px; height: 20px; margin: 0 6px 0 0; vertical-align: middle; }
+  input, button, select { font-size: 16px; }
+  #scp { display: block; width: 100%; box-sizing: border-box; margin: 4px 0; }
+  #d { white-space: nowrap; }
+}
+</style>
 <pre>
 <span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button>  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
 </pre><hr>
@@ -10,6 +29,7 @@ const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|
 const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
 const TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|sh|py|js|ts|css|html?)$/i;
 const viewable = p => VIDEO.test(p) || AUDIO.test(p) || IMAGE.test(p) || TEXT.test(p), PDF = /\.pdf$/i;
+const newTab = a => { a.target = '_blank'; a.rel = 'noopener'; return a; };
 const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexOf(z.slice(-1)) + 1);
 // The folders mounted under /data, each read-only or writable, and the scp destination when one
 // is set: /_settings, written when the server starts. A path can be changed when its folder is
@@ -67,14 +87,17 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
   // The size column in a span of its own (a folder's size is filled in once measured).
   const m = info.match(/^([\s\S]*?)(\s*\S+)(\s*)$/);
   if (m) { t.textContent = m[1]; row.sz = document.createElement('span'); row.sz.textContent = m[2]; row.szLen = m[2].length; t.after(row.sz, m[3]); }
+  row.className = 'r'; // (a phone puts the date, the size and the links under the name)
   const d = info.match(/(\d\d)-(\w\w\w)-(\d{4}) (\d\d):(\d\d)/);
   row.name = a.textContent.toLowerCase();
   row.path = decodeURIComponent(new URL(a.getAttribute('href'), location.href).pathname);
   row.folder = row.path.endsWith('/');
-  // A file's name opens it: in the viewer when it shows that kind, in the browser for a PDF, else
-  // it downloads (there is nothing to look at). [download] and [raw] are on every file.
+  // A file's name opens it: in the viewer when it shows that kind, in the browser for a PDF (in a
+  // tab of its own, the listing kept), else it downloads (there is nothing to look at).
+  // [download] and [raw] are on every file.
   if (!row.folder && viewable(row.path)) a.href = '/_play?f=' + encodeURIComponent(row.path);
-  else if (!row.folder && !PDF.test(row.path)) a.download = '';
+  else if (!row.folder && PDF.test(row.path)) newTab(a);
+  else if (!row.folder) a.download = '';
   row.date = d ? Date.parse(d[2] + ' ' + d[1] + ' ' + d[3] + ' ' + d[4] + ':' + d[5]) : 0;
   row.size = bytes(info.trim().split(/\s+/).pop() || '-');
   rows.push(row);
@@ -155,7 +178,7 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders; [download] and [raw]
-// (the file as the server sends it, in the browser) for every file; [vlc] for videos and sound;
+// (the file as the server sends it, in the browser, in a new tab) for every file; [vlc] for videos and sound;
 // [rename] [delete] in a writable folder (never the folder itself).
 function actions() {
   rows.forEach(row => {
@@ -163,7 +186,7 @@ function actions() {
     const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); return l; };
     if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
-    else { link('download', enc(row.path)).download = ''; link('raw', enc(row.path)); }
+    else { link('download', enc(row.path)).download = ''; newTab(link('raw', enc(row.path))); }
     if (VIDEO.test(row.path) || AUDIO.test(row.path)) act('vlc', () => vlc(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;

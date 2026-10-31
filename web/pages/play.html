@@ -1,8 +1,20 @@
 <html>
-<head><title>Play</title></head>
+<head><title>Play</title><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* A phone: the same page, its lines wrapped to the width, the links big enough for a finger. */
+@media (max-width: 700px) {
+  h1 { font-size: 1.5em; overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+  pre a { display: inline-block; padding: 8px 0; }
+  #pn, #pl2 { white-space: nowrap; }
+  #tx { font-size: 14px; }
+  select { max-width: 100%; font-size: 16px; }
+  input[type=checkbox] { width: 20px; height: 20px; vertical-align: middle; }
+}
+</style></head>
 <body>
 <h1 id="t">Play</h1>
-<pre><a id="raw" href="#">[raw]</a> <a id="get" href="#" download>[download]</a> <a id="up" href="#">[folder]</a>    <span id="pn"></span><label id="pl2" hidden>  <input type="checkbox" id="auto" checked> play next</label></pre><hr>
+<pre><a id="raw" href="#" target="_blank" rel="noopener">[raw]</a> <a id="get" href="#" download>[download]</a> <a id="up" href="#">[folder]</a>    <span id="pn"></span><label id="pl2" hidden>  <input type="checkbox" id="auto" checked> play next</label></pre><hr>
 <video id="v" controls autoplay style="max-width: 100%; max-height: 80vh; background: #000" hidden></video>
 <audio id="au" controls autoplay style="width: 100%" hidden></audio>
 <img id="im" style="max-width: 100%; max-height: 85vh" alt="" hidden>
@@ -209,8 +221,8 @@ if (media) fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text(
   sel.disabled = i.audio.length < 2 || (!i.video && !v.audioTracks);
 });
 
-// GitHub's links: the file as the server gives it (a browser shows what it can), the same to
-// save, and its folder.
+// GitHub's links: the file as the server gives it (a browser shows what it can, in a new tab),
+// the same to save, and its folder.
 const dir = f.replace(/[^/]*$/, ''), enc = p => p.split('/').map(encodeURIComponent).join('/');
 $('raw').href = src; $('get').href = src; $('get').download = f.split('/').pop(); $('up').href = enc(dir);
 

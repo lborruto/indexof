@@ -40,6 +40,8 @@
   where you stopped. Notes, logs, subtitles and code are shown as text, a PDF opens in the
   browser's reader, anything else (a zip, an ISO…) downloads. What the browser cannot play opens
   in VLC with one click (`[vlc]`).
+- **On the phone too.** The same pages, fitted to its screen: each line wraps, links big enough
+  to tap.
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a

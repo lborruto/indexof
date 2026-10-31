@@ -1,5 +1,12 @@
 <html>
-<head><title>Login</title></head>
+<head><title>Login</title><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* A phone: the field and the button across the width, at a size it does not zoom into. */
+@media (max-width: 700px) {
+  pre { white-space: normal; font-size: 15px; }
+  pre input { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; font-size: 16px; }
+}
+</style></head>
 <body>
 <h1>Login</h1><hr>
 <form onsubmit="document.cookie = 'session=' + encodeURIComponent(this.p.value.trim()) + '; path=/; max-age=2592000; SameSite=Strict'; window.location.href = '/'; return false;">
