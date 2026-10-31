@@ -62,9 +62,11 @@ done
 # From here on, one line of $mounts at a time (names may hold spaces, never a line break).
 set -f; IFS=$nl
 
-# Where a MOVE may go: into a writable folder (never onto its mount point). The pattern
-# matches the Destination header, a link as the page sends it; a read-only or a refused folder
-# fails it (nginx itself refuses a .. in it).
+# Where a MOVE may go: into a writable folder (never onto its mount point), and never into or
+# onto a hidden name (nginx decodes the header after this check and maps it without matching
+# the locations again, so the deny on /. would not see it: .uploads, for one, must stay what
+# it is). The pattern matches the Destination header, a link as the page sends it; a read-only
+# or a refused folder fails it (nginx itself refuses a .. in it).
 rw_alts=
 for line in $mounts; do
   [ "${line%% *}" = rw ] || continue
@@ -73,6 +75,7 @@ done
 move_check="set \$indexof_move_ok 1;
 if (\$request_method = MOVE) { set \$indexof_move_ok 0; }
 if (\$http_destination ~ \"^(?:https?://[^/]+)?/(?:$rw_alts)/.\") { set \$indexof_move_ok 1; }
+if (\$http_destination ~* \"/(?:\\.|%2e)\") { set \$indexof_move_ok 0; }
 if (\$indexof_move_ok = 0) { return 403; }"
 indent() { sed "2,\$s/^/$1/"; } # (the lines after the first, which goes where the text is pasted)
 

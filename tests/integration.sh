@@ -185,7 +185,22 @@ expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/../_search/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/.hidden/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/m.txt"
+# Never into or onto a hidden name (the page could neither list nor delete it there; .uploads
+# must stay the upload folder), however the dot is written.
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/.uploads/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/%2euploads/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/%2Euploads/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/.m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/pat/%2Em.txt"
+expect_status MKCOL /share/dir/ 201
+expect_not_2xx MOVE /share/dir/ -H "Destination: $BASE/share/.uploads/"
+expect_not_2xx MOVE /share/dir/ -H "Destination: $BASE/share/%2Euploads/"
+expect_not_2xx MOVE /share/dir/ -H "Destination: $BASE/share/.dir/"
+expect_file "$DATA/share/dir" 'refused moves'
+expect_dir_empty "$DATA/share/.uploads" 'refused moves onto .uploads'
+expect_status DELETE /share/dir/ 204
 expect_file "$DATA/share/m.txt" 'refused moves'
+expect_no_file "$DATA/share/.m.txt" 'refused moves'
 expect_no_file "$DATA/_search/m.txt" 'refused moves'
 expect_no_file "$DATA/.hidden/m.txt" 'refused moves'
 expect_status MOVE /share/m.txt 204 -H "Destination: $BASE/My%20Stuff/m.txt"
