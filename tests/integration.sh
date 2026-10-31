@@ -357,6 +357,10 @@ expect_status PUT '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 201 -T "$TMP/hel
 expect_file "$DATA/share/pat/café & #1 (x).txt" 'upload of an odd name'
 expect_body /share/pat/ 'href="caf%C3%A9%20%26%20%231%20%28x%29.txt">café &amp; #1 (x).txt</a>'
 expect_body '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 'hello'
+# A file is served as it is: the listing's line (Upload, Logout, the script) goes under folders only.
+expect_body '/My%20Stuff/text/page.html' '<b>shown as source</b>'
+expect_no_body '/My%20Stuff/text/page.html' 'Logout'
+expect_body '/My%20Stuff/text/' 'Logout'
 expect_status MOVE '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 204 -H "Destination: $BASE/share/pat/caf%C3%A9%20(2).txt"
 expect_file "$DATA/share/pat/café (2).txt" 'rename of an odd name'
 expect_status DELETE '/share/pat/caf%C3%A9%20(2).txt' 204
