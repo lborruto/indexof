@@ -36,7 +36,7 @@ server {
     # The listings (nginx's own, the search's) get the line under them (add_after_body /_upload)
     # and a viewport tag in their <head> (sub_filter), for a phone to show them at its own width.
     # Listings only: a file is always served as it is.
-    # The pages' settings: the folders (read-only or writable) and the scp destination.
+    # The pages' settings: the folders (read-only or writable), the scp destination, the version.
     location = /_settings {
         if ($indexof_cookie = 0) { return 403; }
         default_type application/json;
@@ -95,15 +95,6 @@ server {
     location = /_search {
         if ($indexof_cookie = 0) { return 302 /_login; }
         proxy_pass $helper/cgi-bin/search$is_args$args;
-        proxy_read_timeout 120s;
-        add_after_body /_upload;
-        sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
-        add_header Cache-Control no-store always;
-    }
-    # The 50 files last modified, in every mounted folder, listed like the search's results.
-    location = /_recent {
-        if ($indexof_cookie = 0) { return 302 /_login; }
-        proxy_pass $helper/cgi-bin/recent;
         proxy_read_timeout 120s;
         add_after_body /_upload;
         sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
