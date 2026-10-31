@@ -138,10 +138,11 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders, [play] [vlc] for
-// videos and sound, [view] for pictures, [rename] [delete] in a writable folder (never the
-// folder itself).
+// videos and sound, [view] for pictures and text files, [rename] [delete] in a writable folder
+// (never the folder itself). (A .ts is a video here, not TypeScript: the video test comes first.)
 const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i;
 const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
+const TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|sh|py|js|ts|css|html?)$/i;
 function actions() {
   rows.forEach(row => {
     const acts = [];
@@ -149,7 +150,7 @@ function actions() {
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); };
     if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
     else if (VIDEO.test(row.path) || AUDIO.test(row.path)) { link('play', '/_play?f=' + encodeURIComponent(row.path)); act('vlc', () => vlc(row.path)); }
-    else if (IMAGE.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
+    else if (IMAGE.test(row.path) || TEXT.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;
     const end = row.lastChild;
