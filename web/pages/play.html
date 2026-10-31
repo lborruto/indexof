@@ -18,7 +18,6 @@
 <video id="v" controls autoplay style="max-width: 100%; max-height: 80vh; background: #000" hidden></video>
 <audio id="au" controls autoplay style="width: 100%" hidden></audio>
 <img id="im" style="max-width: 100%; max-height: 85vh" alt="" hidden>
-<pre id="pi" hidden></pre>
 <pre id="tx" style="white-space: pre-wrap" hidden></pre>
 <pre id="rs" hidden></pre>
 <pre id="c" hidden><a href="#" id="pp">pause</a>  <input type="range" id="sk" min="0" max="0" step="1" value="0" style="width: 50%; vertical-align: middle">  <span id="tm"></span></pre>
@@ -26,6 +25,7 @@
 <span id="sl">Subtitles: <select id="s"><option value="">off</option></select>  <span id="n"></span></span></pre>
 <pre id="m"></pre><hr>
 <pre><span id="vl" hidden><a href="#" id="ov">open in VLC</a>  <a href="#" id="pl">playlist</a>  <a href="#" id="cv">copy VLC link</a>  </span><a href="#" onclick="history.back(); return false;">back</a></pre>
+<div style="text-align: right; font: 12px monospace"><a id="ver" style="color: #888"></a></div>
 <script>
 // f: a path of this server only (/folder/...), never //other.host/... (which a browser would load from elsewhere).
 const f0 = new URLSearchParams(location.search).get('f') || '', f = /^\/[^/\\]/.test(f0) ? f0 : '/', $ = id => document.getElementById(id);
@@ -51,7 +51,7 @@ const SILENT = ['ac3', 'eac3', 'dts', 'truehd', 'mlp', 'pcm_bluray', 'pcm_dvd'];
 // with the line of controls above instead (a seek is a new one, from the keyframe at or before
 // the chosen time, which /_probe?k= gives, so the clock and the subtitles stay right).
 let info = null, mode = 'direct', off = 0, track = 0;
-if (kind === 'image') { $('im').hidden = false; $('im').onload = details; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
+if (kind === 'image') { $('im').hidden = false; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
 else if (kind === 'text') text();
 else {
   v.hidden = false; $('tracks').hidden = false; $('vl').hidden = false; $('sl').hidden = kind === 'audio';
@@ -223,6 +223,14 @@ if (media) fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text(
   sel.disabled = i.audio.length < 2 || (!i.video && !v.audioTracks);
 });
 
+// The version, in the corner (from /_settings): indexof X.Y.Z, linking to its release; another
+// build (main, dev) links to the project.
+fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(s => {
+  const v = s && s.version; if (!v) return;
+  $('ver').textContent = 'indexof ' + v;
+  $('ver').href = 'https://github.com/lborruto/indexof' + (/^\d+\.\d+\.\d+$/.test(v) ? '/releases/tag/v' + v : '');
+});
+
 // GitHub's links: the file as the server gives it (a browser shows what it can, in a new tab),
 // the same to save, and its folder.
 const dir = f.replace(/[^/]*$/, ''), enc = p => p.split('/').map(encodeURIComponent).join('/');
@@ -331,80 +339,6 @@ if (media) {
     const n = next();
     if (n && $('auto').checked) location.href = play(n);
   });
-}
-
-// A picture's line: "1920 × 1080 · 2.4 MB · taken 2024-07-14 18:32 · Camera": its size in pixels,
-// the file's (from the server's headers), and for a JPEG, when it was taken and the camera, from
-// the Exif in its first 128 KiB (a range). Never where (GPS). Whatever is not found is left out.
-function details() {
-  const im = $('im'), jpeg = /\.jpe?g$/i.test(f), parts = [];
-  if (im.naturalWidth) parts.push(im.naturalWidth + ' × ' + im.naturalHeight);
-  fetch(src, jpeg ? { headers: { Range: 'bytes=0-131071' }, cache: 'no-store' } : { method: 'HEAD', cache: 'no-store' }).then(r => {
-    if (!r.ok) return [null, 0];
-    const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)$/), n = m ? +m[1] : +r.headers.get('Content-Length') || 0;
-    return jpeg ? r.arrayBuffer().then(b => [b, n || b.byteLength]) : [null, n];
-  }).catch(() => [null, 0]).then(([b, n]) => {
-    const x = b ? exif(b) : {};
-    if (n) parts.push(size(n));
-    if (x.date) parts.push('taken ' + x.date);
-    if (x.camera) parts.push(x.camera);
-    if (parts.length) { $('pi').textContent = parts.join(' · '); $('pi').hidden = false; }
-  });
-}
-// (As the listing counts: 1 KB = 1024 bytes.)
-const size = n => { let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i && n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + ['bytes', 'KB', 'MB', 'GB', 'TB'][i]; };
-// Exif as cameras write it: in a JPEG's APP1 segment ("Exif\0\0"), a TIFF structure (II: little
-// endian, MM: big endian) whose first IFD holds Make (0x010F), Model (0x0110) and the Exif IFD
-// (0x8769), which holds DateTimeOriginal (0x9003). Every offset checked against the bytes there
-// are; anything unexpected ends it with what was found so far: { date, camera }.
-function exif(buf) {
-  const out = {};
-  try {
-    const d = new DataView(buf), n = d.byteLength;
-    if (n < 4 || d.getUint16(0) !== 0xFFD8) return out;
-    let p = 2, t = -1, end = 0;
-    while (p + 4 <= n) { // the segments before the picture's data
-      if (d.getUint8(p) !== 0xFF) return out;
-      const mk = d.getUint8(p + 1);
-      if (mk === 0xFF) { p++; continue; } // (padding)
-      if (mk === 0xD9 || mk === 0xDA) return out;
-      if (mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { p += 2; continue; } // (no length)
-      const len = d.getUint16(p + 2);
-      if (len < 2) return out;
-      if (mk === 0xE1 && len >= 16 && p + 10 <= n && d.getUint32(p + 4) === 0x45786966 && d.getUint16(p + 8) === 0) { t = p + 10; end = Math.min(n, p + 2 + len); break; }
-      p += 2 + len;
-    }
-    const room = end - t;
-    if (t < 0 || room < 8) return out;
-    const le = d.getUint16(t) === 0x4949;
-    if (!le && d.getUint16(t) !== 0x4D4D) return out;
-    const u16 = o => d.getUint16(t + o, le), u32 = o => d.getUint32(t + o, le);
-    if (u16(2) !== 42) return out;
-    const ifd = o => { // its entries: { tag: [type, count, where the value or its offset is] }
-      const e = {};
-      if (o < 8 || o + 2 > room) return e;
-      for (let i = 0, k = u16(o); i < k && o + 14 + i * 12 <= room; i++) { const q = o + 2 + i * 12; e[u16(q)] = [u16(q + 2), u32(q + 4), q + 8]; }
-      return e;
-    };
-    const ascii = x => { // an ASCII value, printable characters only
-      if (!x || x[0] !== 2 || x[1] < 1 || x[1] > 256) return '';
-      const o = x[1] <= 4 ? x[2] : u32(x[2]);
-      if (o < 8 || o + x[1] > room) return '';
-      let s = '';
-      for (let i = 0; i < x[1]; i++) { const c = d.getUint8(t + o + i); if (!c) break; if (c >= 32 && c < 127) s += String.fromCharCode(c); }
-      return s.trim().replace(/\s+/g, ' ').slice(0, 64);
-    };
-    const i0 = ifd(u32(4)), make = ascii(i0[0x010F]), model = ascii(i0[0x0110]);
-    // (Model often names the maker already: "Canon" and "Canon EOS R6" are "Canon EOS R6".)
-    if (model) out.camera = make && !model.toLowerCase().startsWith(make.split(' ')[0].toLowerCase()) ? make + ' ' + model : model;
-    else if (make) out.camera = make;
-    const x = i0[0x8769];
-    if (x && (x[0] === 4 || x[0] === 13) && x[1] === 1) {
-      const m = ascii(ifd(u32(x[2]))[0x9003]).match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d)/);
-      if (m && +m[1] > 0) out.date = m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
-    }
-  } catch (e) {}
-  return out;
 }
 
 // Text: the file's first 1 MiB (a range: the server sends that much only), shown as it is,
