@@ -53,17 +53,63 @@ expect_empty() {
   if [ -z "$(tr -d ' \r\n' <"$BODY")" ]; then ok "GET $1 -> $got, empty"; else fail "GET $1 ($got): not empty: $(head -c 200 "$BODY")"; fi
 }
 
-# expect_header PATH HEADER-LINE [curl options...]: a GET (logged in) whose headers contain the line.
+# expect_header [-n] PATH HEADER-LINE [curl options...]: a GET (logged in, unless -n) whose
+# headers contain the line.
 expect_header() {
+  nocookie=
+  if [ "$1" = -n ]; then nocookie=-n; shift; fi
   path=$1; needle=$2; shift 2
-  curl -s -o /dev/null -D "$BODY" -H "Cookie: $COOKIE" "$@" "$BASE$path"
-  if grep -qiF -- "$needle" "$BODY"; then ok "GET $path has header '$needle'"; else fail "GET $path: no header '$needle' in: $(tr '\r' ' ' <"$BODY")"; fi
+  if [ -z "$nocookie" ]; then set -- -H "Cookie: $COOKIE" "$@"; fi
+  curl -s -o /dev/null -D "$BODY" "$@" "$BASE$path"
+  if grep -qiF -- "$needle" "$BODY"; then ok "GET $path has header '$needle'${nocookie:+ (no cookie)}"; else fail "GET $path: no header '$needle' in: $(tr '\r' ' ' <"$BODY")"; fi
 }
 
-# expect_zip PATH NAME...: a GET (logged in) of a valid zip holding exactly those entries (sorted).
-expect_zip() {
+# search_hrefs PATH: a GET (logged in) of the search page; the link of each result, one a line.
+search_hrefs() {
+  req GET "$1" >/dev/null
+  sed -n '/<pre id="list"/,/<\/pre>/p' "$BODY" | grep -o 'href="[^"]*"' | sed 's/^href="//; s/"$//'
+}
+
+# expect_search PATH NEEDLE...: the search's results hold each NEEDLE (part of a result's link).
+expect_search() {
   path=$1; shift
-  got=$(req GET "$path")
+  got=$(search_hrefs "$path")
+  for needle in "$@"; do
+    case "$got" in *"$needle"*) ;; *) fail "GET $path: no result '$needle' in: $(printf '%s' "$got" | head -c 300)" ;; esac
+  done
+  ok "GET $path has results $*"
+}
+
+# expect_no_search PATH NEEDLE...: no result of the search holds any NEEDLE.
+expect_no_search() {
+  path=$1; shift
+  got=$(search_hrefs "$path")
+  for needle in "$@"; do
+    case "$got" in *"$needle"*) fail "GET $path: result '$needle' (it must not)" ;; esac
+  done
+  ok "GET $path has no result $*"
+}
+
+# expect_search_count PATH N: the search has exactly N results.
+expect_search_count() {
+  got=$(search_hrefs "$1" | grep -c .)
+  if [ "$got" = "$2" ]; then ok "GET $1 -> $2 results"; else fail "GET $1: $got results, wanted $2"; fi
+}
+
+# expect_search_inside PATH PREFIX: every result's link starts with PREFIX (a folder of the page,
+# as the page encodes it): nothing from outside the mounted folders, whatever the search asked.
+expect_search_inside() {
+  bad=$(search_hrefs "$1" | awk -v p="$2" 'index($0, p) != 1' | head -3 | tr '\n' ' ')
+  if [ -z "$bad" ]; then ok "GET $1: every result under $2"; else fail "GET $1: results outside $2: $bad"; fi
+}
+
+# expect_zip [-d DATA] PATH NAME...: a GET (logged in; a POST of DATA, a form, with -d) of a
+# valid zip holding exactly those entries (sorted).
+expect_zip() {
+  data=
+  if [ "$1" = -d ]; then data=$2; shift 2; fi
+  path=$1; shift
+  if [ -n "$data" ]; then got=$(req POST "$path" --data "$data"); else got=$(req GET "$path"); fi
   if python3 -I -c '
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as z:

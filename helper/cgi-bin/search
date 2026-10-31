@@ -4,7 +4,9 @@
 # shellcheck source=helper/cgi-bin/lib.sh
 . "$(dirname "$0")/lib.sh"
 printf 'Content-Type: text/html; charset=utf-8\r\n\r\n'
-# The form's values, each decoded and cut down to harmless characters.
+# The form's values, each decoded and cut down to harmless characters: q becomes a find
+# pattern (letters, digits, spaces and a few signs only); in names a folder, which may hold any
+# character but a control one (lib.sh checks it is a folder of the page, as any other path).
 # shellcheck disable=SC1007 # q= in= ...: each set to empty, on purpose
 q= in= type= kind= max=
 set -f # the values are not file patterns
@@ -13,7 +15,7 @@ for kv in $QUERY_STRING; do
   v=$(httpd -d "$(printf '%s' "${kv#*=}" | tr '+' ' ')")
   case "$kv" in
     q=*) q=$(printf '%s' "$v" | tr -cd 'A-Za-z0-9 ._()\200-\377-') ;;
-    in=*) in=$(printf '%s' "$v" | tr -cd 'A-Za-z0-9 ._()/\200-\377-') ;;
+    in=*) in=$(printf '%s' "$v" | tr -d '\000-\037\177') ;;
     type=*) type=$v ;;
     kind=*) kind=$v ;;
     max=*) max=$v ;;
@@ -54,9 +56,12 @@ printf '</select>  max: <select name="max">'
 for m in 100 500 1000 2000; do opt "$m" "$m" "$max"; done
 echo '</select>  <input type="submit" value="Search"></form></pre><hr>'
 
-# The results: like nginx's listing (link, date, size), at most $max.
+# The results: like nginx's listing (link, date, size), at most $max. Hidden names, the refused
+# _ folders and names holding a line break (the list is one path per line: the part after the
+# break would be read as another path, /etc/passwd say) are left out, with what is under them.
+nl=$(printf '\nx'); nl=${nl%x}
 if [ ${#q} -ge 2 ] || [ -n "$kind" ]; then
-  set -- "$base" -mindepth 1 '(' -name '.*' -o -path '/data/_*' ')' -prune -o
+  set -- "$base" -mindepth 1 '(' -name '.*' -o -path '/data/_*' -o -name "*$nl*" ')' -prune -o
   [ -n "$type" ] && set -- "$@" -type "$type"
   [ -n "$q" ] && set -- "$@" -iname "*$q*"
   if [ -n "$exts" ]; then
