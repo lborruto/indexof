@@ -2,4 +2,5 @@
 .env
 .DS_Store
 docs/superpowers/
+docs/screenshots/*.png
 /data/
