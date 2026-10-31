@@ -77,12 +77,14 @@ if [ -n "$text" ] && [ ${#q} -ge 2 ]; then
   # a log or a dump, slow to read through), that hold q as it is, case aside (grep -F -i: a fixed
   # string, never a pattern; -e and --: never an option), at most 200; within the helper's time
   # (nginx waits 120 s), what was found by then. Regular files only: no symbolic link followed.
+  # grep reads 50 files at a time, 10 s at most each, so a stopped search stops reading too (a
+  # timeout on find alone would leave the grep in flight to the end of its batch).
   [ "$max" -gt 200 ] && max=200
   set -- "$@" -type f -size -5242881c
   t='txt md markdown log nfo srt vtt ass ssa sub json yaml yml toml ini conf cfg csv tsv xml sh py js css html htm'
   set -- "$@" '('; o=; for e in $t; do set -- "$@" $o -iname "*.$e"; o=-o; done; set -- "$@" ')'
   if [ -n "$exts" ]; then set -- "$@" '('; o=; for e in $exts; do set -- "$@" $o -iname "*.$e"; o=-o; done; set -- "$@" ')'; fi
-  timeout 110 find "$@" -exec grep -F -i -l -e "$q" -- {} + 2>/dev/null | listing "$max"
+  timeout 110 find "$@" -print0 2>/dev/null | xargs -0 -n 50 timeout 10 grep -F -i -l -e "$q" -- 2>/dev/null | listing "$max"
 elif [ -z "$text" ] && { [ ${#q} -ge 2 ] || [ -n "$kind" ]; }; then
   [ -n "$type" ] && set -- "$@" -type "$type"
   [ -n "$q" ] && set -- "$@" -iname "*$q*"

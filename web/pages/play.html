@@ -266,9 +266,10 @@ fetch(enc(dir), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() 
 // the same in .vtt, .ass, .ssa; in the list after the file's own tracks, as "fr (file)",
 // "en forced (file)" or "file". /_sub converts them (s=file).
 function sidecars(all) {
-  const stem = f.split('/').pop().replace(/\.[^.]*$/, '') + '.';
+  // (The name's case aside, movie.srt for Movie.mkv; a language in any script, Movie.français.srt.)
+  const stem = (f.split('/').pop().replace(/\.[^.]*$/, '') + '.').toLowerCase();
   all.forEach(n => {
-    const m = n.startsWith(stem) && n.slice(stem.length).match(/^(?:([\w-]{1,20})\.)?(?:([\w-]{1,20})\.)?(srt|vtt|ass|ssa)$/i);
+    const m = n.toLowerCase().startsWith(stem) && n.slice(stem.length).match(/^(?:([\p{L}\p{N}_-]{1,20})\.)?(?:([\p{L}\p{N}_-]{1,20})\.)?(srt|vtt|ass|ssa)$/iu);
     if (!m) return;
     const o = document.createElement('option'), l = [m[1], m[2]].filter(Boolean).join(' ');
     o.value = subs.length; subs.push({ file: dir + n });

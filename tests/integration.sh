@@ -57,6 +57,7 @@ printf '1\n00:00:01,000 --> 00:00:02,000\nA subtitle file.\n' >"$DATA/My Stuff/s
 mkdir -p "$DATA/My Stuff/text" || exit 1
 printf 'Plain text for the viewer.\n' >"$DATA/My Stuff/text/readme.txt"
 printf '<html><body><b>shown as source</b></body></html>\n' >"$DATA/My Stuff/text/page.html"
+printf 'a backslash in the name\n' >"$DATA/My Stuff/subs/back\\slash.txt"
 printf 'Caf\351 cr\350me\n' >"$DATA/My Stuff/text/old.nfo"
 awk 'BEGIN { for (i = 1; i <= 30000; i++) printf "line %05d of a log longer than one mebibyte\n", i }' >"$DATA/My Stuff/text/big.log"
 ln -s /nowhere "$DATA/dangling"
@@ -544,6 +545,8 @@ expect_search '/_search?q=Buck&in=movies' "$MKV_S"
 expect_no_search '/_search?q=Buck&in=movies' 'My%20Stuff'
 expect_search_inside '/_search?q=Buck&in=movies' '/movies/'
 expect_body '/_search?q=Buck&in=movies' '<h1>Search: Buck in /movies/</h1>'
+# (A backslash in a name is encoded in the link: a browser would read it as a slash.)
+expect_body '/_search?q=slash' 'href="/My%20Stuff/subs/back%5Cslash.txt"'
 expect_search '/_search?q=Buck&in=movies/Big%20Buck%20Test%20(2024)' "$MKV_S"
 expect_search_count '/_search?q=Buck&in=movies/Big%20Buck%20Test%20(2024)' 1
 expect_search "/_search?q=x.txt&in=$ODD_E" "/$ODD_S/x.txt"

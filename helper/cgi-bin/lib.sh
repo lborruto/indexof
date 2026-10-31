@@ -28,7 +28,7 @@ listing() {
   echo "<pre id=\"list\" data-max=\"$1\">"
   head -n "$1" | while IFS= read -r f; do [ -n "$f" ] && stat -c '%F|%s|%Y|%n' "$f"; done | awk -F'|' '
     BEGIN { for (i = 0; i < 256; i++) ord[sprintf("%c", i)] = i }
-    function enc(s,  r, i, c) { r = ""; for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); r = r (c ~ /[A-Za-z0-9\/._~-]/ ? c : sprintf("%%%02X", ord[c])) } return r }
+    function enc(s,  r, i, c) { r = ""; for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); r = r (c ~ "^[A-Za-z0-9/._~-]$" ? c : sprintf("%%%02X", ord[c])) } return r }
     function esc(s) { gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s); gsub(/"/, "\\&quot;", s); return s }
     function human(n,  i) { if (n < 1024) return n; for (i = 0; n >= 1024 && i < 4; i++) n /= 1024; return int(n + 0.5) substr("KMGT", i, 1) }
     { path = substr($0, length($1 $2 $3) + 10); dir = $1 == "directory"; if (dir) path = path "/"

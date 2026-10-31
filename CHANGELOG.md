@@ -39,6 +39,8 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 - The search page's "in:" list showed a blank choice instead of "everywhere" when a folder's
   name held a line break; such names are left out, and "everywhere" is selected when no folder
   is.
+- A file whose name holds a backslash had a broken link in the search results (a browser reads
+  `\` as `/`); it is now encoded.
 - On a computer screen narrower than about 1,300 px, the upload line (with the scp line) made
   the page scroll sideways; it now wraps.
 
