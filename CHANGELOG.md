@@ -7,6 +7,8 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-31
+
 ### Added
 
 - The home page shows the free space too: once per disk holding a mounted folder.
@@ -107,8 +109,7 @@ history.
   over the whole history, Trivy on both images and the Dockerfiles; Dependabot for the base
   images and the actions.
 
-[Unreleased]: https://github.com/lborruto/indexof/commits/main
-
-[Unreleased]: https://github.com/lborruto/indexof/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lborruto/indexof/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lborruto/indexof/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lborruto/indexof/releases/tag/v1.0.0
