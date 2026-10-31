@@ -901,7 +901,7 @@ if [ -n "$chrome" ]; then
   "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port="$CDP_PORT" --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
   chrome_pid=$!
   i=0; until curl -s http://127.0.0.1:"$CDP_PORT"/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
-  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" INDEXOF_RW_DIR="$DATA/share" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
   INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui-viewer.mjs" "$BASE" 'My Stuff/text' || { kill "$chrome_pid" 2>/dev/null; fail 'the viewer (tests/ui-viewer.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
