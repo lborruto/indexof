@@ -1,19 +1,14 @@
 #!/bin/sh
 # A zip of the paths given as p= (a folder's [zip] link, or the selection's form, posted):
-# each must be a real folder or file under /data/media or /data/share, not a hidden one.
-# Streamed as it is made: nothing is written on the server, so nothing is left behind.
+# each must be a real folder or file in a mounted folder under /data, not a hidden one (lib.sh's
+# rules). Streamed as it is made: nothing is written on the server, so nothing is left behind.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
 nl=$(printf '\nx'); nl=${nl%x} # a line break: names with one are left out (the list is one per line)
-check() {
-  case "$1" in *"$nl"*) return 1 ;; esac
-  d=$(realpath "/data/${1#/}" 2>/dev/null)
-  case "$d" in /data/media|/data/media/*|/data/share|/data/share/*) ;; *) return 1 ;; esac
-  case "$d" in */.*) return 1 ;; esac
-  [ -e "$d" ] && printf '%s\n' "$d"
-}
 args=$QUERY_STRING
 if [ "$REQUEST_METHOD" = POST ] && [ -n "$CONTENT_LENGTH" ]; then args="$args&$(head -c "$CONTENT_LENGTH")"; fi
 list=$(set -f; IFS='&'; for kv in $args; do
-  case "$kv" in (p=*) check "$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')")" ;; esac
+  case "$kv" in (p=*) allowed_path "$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')")" ;; esac
 done | sort -u)
 if [ -z "$list" ]; then printf 'Content-Type: text/plain\r\n\r\nnothing to zip\n'; exit 0; fi
 

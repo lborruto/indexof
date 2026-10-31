@@ -1,4 +1,8 @@
 #!/bin/sh
+# The search page: a form (what, in which folder, files or folders, kind, how many at most)
+# and its results, listed like nginx's listing, from the mounted folders under /data.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
 printf 'Content-Type: text/html; charset=utf-8\r\n\r\n'
 # The form's values, each decoded and cut down to harmless characters.
 # shellcheck disable=SC1007 # q= in= ...: each set to empty, on purpose
@@ -29,14 +33,10 @@ case "$kind" in
   games) exts='nds 3ds cia gba gb gbc nes sfc smc n64 z64 nsp xci' ;;
   *) kind= exts= ;;
 esac
-# The folder to search: a real folder under /data (media and share), not a hidden one.
+# The folder to search: a mounted folder, or one inside it (lib.sh's rules); everywhere otherwise.
 base=/data
-if [ -n "$in" ]; then
-  d=$(realpath "/data/$in" 2>/dev/null)
-  case "$d" in /data/*) [ -d "$d" ] && base=$d ;; esac
-fi
+if [ -n "$in" ]; then d=$(allowed_path "/$in") && [ -d "$d" ] && base=$d; fi
 rel=${base#/data}; rel=${rel#/}
-case "/$rel" in */.*) base=/data rel= ;; esac
 
 esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
 relhtml=$(printf '%s' "$rel" | esc)
@@ -44,7 +44,8 @@ opt() { printf '<option value="%s"%s>%s</option>' "$1" "$([ "$1" = "$3" ] && ech
 echo "<html><head><title>Search${q:+: $q}</title></head><body><h1>Search${q:+: $q}${rel:+ in /$relhtml/}</h1><hr><pre><form action=\"/_search\">"
 printf 'Search: <input name="q" value="%s" size="30" autofocus>  in: <select name="in"><option value="">everywhere</option>' "$q"
 cur=$(printf '%s' "$rel" | esc)
-{ find /data -mindepth 1 -maxdepth 2 -type d ! -path '*/.*'; [ -n "$rel" ] && echo "$base"; } | sed 's|^/data/||' | sort -u |
+# (the mounted folders and the folders in them, without the hidden ones and the refused _ ones)
+{ find /data -mindepth 1 -maxdepth 2 -type d ! -path '*/.*' ! -path '/data/_*'; [ -n "$rel" ] && echo "$base"; } | sed 's|^/data/||' | sort -u |
   while IFS= read -r f; do e=$(printf '%s' "$f" | esc); opt "$e" "$e" "$cur"; done
 printf '</select>  type: <select name="type">%s%s%s</select>' "$(opt '' all "$type")" "$(opt f files "$type")" "$(opt d folders "$type")"
 printf '  kind: <select name="kind">%s' "$(opt '' any "$kind")"
@@ -55,7 +56,7 @@ echo '</select>  <input type="submit" value="Search"></form></pre><hr>'
 
 # The results: like nginx's listing (link, date, size), at most $max.
 if [ ${#q} -ge 2 ] || [ -n "$kind" ]; then
-  set -- "$base" -mindepth 1 -name '.*' -prune -o
+  set -- "$base" -mindepth 1 '(' -name '.*' -o -path '/data/_*' ')' -prune -o
   [ -n "$type" ] && set -- "$@" -type "$type"
   [ -n "$q" ] && set -- "$@" -iname "*$q*"
   if [ -n "$exts" ]; then

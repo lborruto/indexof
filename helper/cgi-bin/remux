@@ -1,12 +1,13 @@
 #!/bin/sh
-# ?f=&a=N&t=SECONDS: a video (a path of the page, /media/... or /share/..., as a real file
-# under /data, not a hidden one) with its Nth audio track (ffmpeg's a:N, from 0) instead of the
+# ?f=&a=N&t=SECONDS: a video (a path of the page, /folder/..., as a real file in a mounted
+# folder under /data, not a hidden one) with its Nth audio track (ffmpeg's a:N, from 0) instead of the
 # default one, from SECONDS in, for the player: repackaged, never converted ("direct stream"):
 # the video and that audio track copied as they are (fragmented MP4, or Matroska). A browser plays only
 # a file's default audio track; this is how another one is heard. Streamed as it is made,
 # nothing written on the server; ffmpeg is killed by SIGPIPE on its next write once the browser
 # (so nginx, so httpd) has gone away.
-nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
 # shellcheck disable=SC1007 # f=: set to empty, on purpose
 f= a=0 t=0
 set -f; IFS='&'
@@ -19,10 +20,7 @@ for kv in $QUERY_STRING; do
 done
 unset IFS; set +f
 fail() { printf 'HTTP/1.1 %s\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1" "$2"; exit 0; }
-d=
-case "$f" in *"$nl"*) ;; *) d=$(realpath "/data/${f#/}" 2>/dev/null) ;; esac
-case "$d" in /data/media/*|/data/share/*) ;; *) d= ;; esac
-case "$d" in */.*) d= ;; esac
+d=$(allowed_path "$f") || d=
 [ -f "$d" ] || fail '404 Not Found' 'no such file'
 case "$a" in [0-9]|[0-9][0-9]) ;; *) fail '400 Bad Request' 'a: the audio track, 0 to 99' ;; esac
 # Seconds as a plain number, up to 6 digits with up to 3 decimals: never anything else (an

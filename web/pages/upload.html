@@ -1,27 +1,39 @@
 <pre>
-<span id="w"><input type="file" id="f" multiple> <button onclick="up()">Upload</button>  <button onclick="mk()">New folder</button>  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
+<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button>  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
 </pre><hr>
 <script>
-fetch('/_space', { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { document.getElementById('d').textContent = t.trim(); });
 const msg = t => { document.getElementById('s').textContent = t ? '\n' + t : ''; }; // (a blank line above it)
 const enc = p => p.split('/').map(encodeURIComponent).join('/');
 const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexOf(z.slice(-1)) + 1);
-// Only share/ can be changed (media is mounted read-only).
-const searching = location.pathname === '/_search', writable = location.pathname.indexOf('/share/') === 0;
-if (searching) document.getElementById('w').textContent = '';
-else if (!writable) document.getElementById('w').textContent = 'read-only (uploads and deletes in /share/)';
-// The same upload from a terminal: scp into this folder (/srv/share here is /data/share on the server).
-// Only for folder paths of plain characters: an older scp hands the remote path to the server's
-// shell, where a space, a quote or $(...) would mean something else.
-if (writable) {
+// The folders mounted under /data, each read-only or writable, and the scp destination when one
+// is set: /_settings, written when the server starts. A path can be changed when its folder is
+// writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
+let settings = { mounts: {}, scp: null };
+const mountOf = p => p.split('/')[1] || '', writable = p => { const m = mountOf(p); return m !== '' && settings.mounts[m] === 'rw' && p.replace(/\/$/, '') !== '/' + m; };
+const searching = location.pathname === '/_search';
+let here = '/'; try { here = decodeURIComponent(location.pathname); } catch (e) {}
+fetch('/_space?p=' + encodeURIComponent(here), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { document.getElementById('d').textContent = t.trim(); });
+fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(s => {
+  if (s && s.mounts) settings = s;
+  const w = document.getElementById('w');
+  if (searching) w.remove();
+  else if (!writable(here)) { w.textContent = 'read-only folder'; w.hidden = false; }
+  else { w.hidden = false; scpLine(); }
+  actions();
+});
+// The same upload from a terminal: scp into this folder, as its path under /data (the folders
+// are mounted there), to the destination from the settings (user@host). Only for folder paths of
+// plain characters: an older scp hands the remote path to the server's shell, where a space, a
+// quote or $(...) would mean something else.
+function scpLine() {
+  if (!settings.scp) { document.getElementById('sl').remove(); return; }
   const quote = t => "'" + t.replace(/'/g, "'\\''") + "'", scp = document.getElementById('scp'), pick = document.getElementById('f');
-  let folder = '';
-  try { folder = '/data' + decodeURIComponent(location.pathname); } catch (e) {}
+  const folder = '/data' + here, dest = settings.scp + ':' + folder;
   const plain = /^[\p{L}\p{N}\/._@+-]+$/u.test(folder);
   const fill = () => {
     if (!plain) { scp.value = '(no scp here: the folder name has spaces or symbols; use Upload)'; return; }
     const names = [...pick.files].map(f => quote(f.name)).join(' ');
-    scp.value = 'scp ' + (names || '<your files>') + ' user@files.lan:' + folder;
+    scp.value = 'scp ' + (names || '<your files>') + ' ' + dest;
   };
   pick.addEventListener('change', fill); fill();
   // (navigator.clipboard needs https; selecting and copying works on http too.)
@@ -29,7 +41,7 @@ if (writable) {
   document.getElementById('cp').onclick = () => copy(scp.value, 'scp command copied: run it from the folder the files are in');
   // A page never learns where a chosen file is on the computer, so for a command that works from
   // anywhere: type scp, drag the files onto the terminal (it writes their full paths), paste this.
-  document.getElementById('cd').onclick = () => plain ? copy('user@files.lan:' + folder, 'destination copied: type scp, drag your files onto the terminal, paste') : msg('no scp here: the folder name has spaces or symbols');
+  document.getElementById('cd').onclick = () => plain ? copy(dest, 'destination copied: type scp, drag your files onto the terminal, paste') : msg('no scp here: the folder name has spaces or symbols');
 }
 // The listing (a folder's, or the search's results): each line in a span of its own, to filter, sort and page.
 const list = document.getElementById('list') || (searching ? null : document.querySelector('pre')), rows = [];
@@ -121,27 +133,30 @@ if (list) {
   }
   show();
 }
-// At the end of each line: [zip] for folders, [play] [vlc] for videos and sound, [view] for
-// pictures, [rename] [delete] inside share/ (not share itself).
+// At the end of each line (once the settings are known): [zip] for folders, [play] [vlc] for
+// videos and sound, [view] for pictures, [rename] [delete] in a writable folder (never the
+// folder itself).
 const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i;
 const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
-rows.forEach(row => {
-  const acts = [];
-  const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
-  const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); };
-  if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
-  else if (VIDEO.test(row.path) || AUDIO.test(row.path)) { link('play', '/_play?f=' + encodeURIComponent(row.path)); act('vlc', () => vlc(row.path)); }
-  else if (IMAGE.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
-  if (row.path.indexOf('/share/') === 0 && row.path !== '/share/') { act('rename', () => ren(row)); act('delete', () => del(row)); }
-  if (!acts.length) return;
-  const end = row.lastChild;
-  if (end.nodeType === 3) end.textContent = end.textContent.replace(/\n$/, '');
-  acts.forEach(l => row.append(' ', l));
-  row.append('\n');
-});
+function actions() {
+  rows.forEach(row => {
+    const acts = [];
+    const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
+    const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); };
+    if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
+    else if (VIDEO.test(row.path) || AUDIO.test(row.path)) { link('play', '/_play?f=' + encodeURIComponent(row.path)); act('vlc', () => vlc(row.path)); }
+    else if (IMAGE.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
+    if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
+    if (!acts.length) return;
+    const end = row.lastChild;
+    if (end.nodeType === 3) end.textContent = end.textContent.replace(/\n$/, '');
+    acts.forEach(l => row.append(' ', l));
+    row.append('\n');
+  });
+}
 // VLC (it plays what a browser cannot: AC3, DTS, any audio track): vlc:// with a temporary link to
 // the file (/_vlc: that file only, reading only, 12 hours), which the VLC Link helper
-// (files/vlc-link/) hands to VLC; the player page also has the same link as a playlist.
+// (vlc-link/) hands to VLC; the player page also has the same link as a playlist.
 function vlc(path) {
   fetch('/_vlc?f=' + encodeURIComponent(path), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
     if (!/^e=\d+&k=[\w-]+$/.test(t.trim())) { msg('no VLC link (' + (t.trim() || 'server error') + ')'); return; }
@@ -156,13 +171,13 @@ async function del(row) {
   const r = await fetch(enc(row.path), { method: 'DELETE' });
   if (r.ok) location.reload(); else msg(row.path + ': delete failed (' + r.status + ')');
 }
-// Rename, or move (change the folders in the path; missing ones are made), inside share/.
+// Rename, or move (change the folders in the path; missing ones are made), inside its folder.
 async function ren(row) {
-  const from = row.path.replace(/\/$/, '');
-  let to = prompt('Rename or move (inside /share/) to:', from);
+  const from = row.path.replace(/\/$/, ''), m = mountOf(row.path);
+  let to = prompt('Rename or move (inside /' + m + '/) to:', from);
   if (!to || to === from) return;
   to = '/' + to.split('/').filter(p => p && p !== '.' && p !== '..').join('/');
-  if (to.indexOf('/share/') !== 0) { msg('stays inside /share/'); return; }
+  if (mountOf(to) !== m || !writable(to)) { msg('stays inside /' + m + '/'); return; }
   const parts = to.split('/');
   for (let i = 3; i < parts.length; i++) await fetch(enc(parts.slice(0, i).join('/')) + '/', { method: 'MKCOL' });
   const slash = row.folder ? '/' : '';

@@ -1,9 +1,10 @@
 #!/bin/sh
 # ?f=&s=N: the Nth subtitle track (ffmpeg's s:N, from 0) of a video (a path of the page,
-# /media/... or /share/..., as a real file under /data, not a hidden one) as WebVTT, for the
+# /folder/..., as a real file in a mounted folder under /data, not a hidden one) as WebVTT, for the
 # player. Text subtitles only (SubRip, ASS/SSA, MP4 text, WebVTT): pictures (PGS, DVD) cannot
 # become text. ffmpeg reads through the whole file for them, so a big one takes a while.
-nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
 # shellcheck disable=SC1007 # f= s=: each set to empty, on purpose
 f= s=
 set -f; IFS='&'
@@ -15,10 +16,7 @@ for kv in $QUERY_STRING; do
 done
 unset IFS; set +f
 fail() { printf 'HTTP/1.1 %s\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1" "$2"; exit 0; }
-d=
-case "$f" in *"$nl"*) ;; *) d=$(realpath "/data/${f#/}" 2>/dev/null) ;; esac
-case "$d" in /data/media/*|/data/share/*) ;; *) d= ;; esac
-case "$d" in */.*) d= ;; esac
+d=$(allowed_path "$f") || d=
 [ -f "$d" ] || fail '404 Not Found' 'no such file'
 case "$s" in [0-9]|[0-9][0-9]) ;; *) fail '400 Bad Request' 's: the subtitle track, 0 to 99' ;; esac
 codec=$(ffprobe -v error -select_streams "s:$s" -show_entries stream=codec_name -of csv=p=0 "$d" 2>/dev/null | head -n 1)

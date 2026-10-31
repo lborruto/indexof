@@ -8,10 +8,10 @@ cd "$(dirname "$0")/.." || exit 1
 status=0
 fail() { echo "FAIL  $*" >&2; status=1; }
 
-# The shell scripts: the helper's CGI scripts, the image's start scripts, the tests, the Mac
-# installer. Only the ones that exist (a folder may not have any yet).
+# The shell scripts: the helper's CGI scripts (and their lib.sh), the images' start scripts,
+# the tests, the Mac installer. Only the ones that exist (a folder may not have any yet).
 set --
-for f in helper/cgi-bin/* web/*.sh tests/*.sh vlc-link/mac/install.sh; do
+for f in helper/cgi-bin/* helper/*.sh web/*.sh tests/*.sh vlc-link/mac/install.sh; do
   [ -f "$f" ] && set -- "$@" "$f"
 done
 [ $# -gt 0 ] || fail 'no shell scripts found'
