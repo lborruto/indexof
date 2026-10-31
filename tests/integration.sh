@@ -190,6 +190,10 @@ expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/.uploads/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/%2euploads/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/%2Euploads/m.txt"
+# An encoded slash or backslash would hide a dot from the check (decoded after it).
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/x%2f.uploads/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/x%2F.uploads/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/x%5c.uploads/m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/.m.txt"
 expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/pat/%2Em.txt"
 expect_status MKCOL /share/dir/ 201

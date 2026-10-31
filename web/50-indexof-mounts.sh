@@ -75,7 +75,10 @@ done
 move_check="set \$indexof_move_ok 1;
 if (\$request_method = MOVE) { set \$indexof_move_ok 0; }
 if (\$http_destination ~ \"^(?:https?://[^/]+)?/(?:$rw_alts)/.\") { set \$indexof_move_ok 1; }
+# (An encoded slash or backslash, %2f or %5c, is refused too: x%2f.uploads would decode to
+# x/.uploads after this check; the page never sends one, a name cannot hold a slash.)
 if (\$http_destination ~* \"/(?:\\.|%2e)\") { set \$indexof_move_ok 0; }
+if (\$http_destination ~* \"%(?:2f|5c)\") { set \$indexof_move_ok 0; }
 if (\$indexof_move_ok = 0) { return 403; }"
 indent() { sed "2,\$s/^/$1/"; } # (the lines after the first, which goes where the text is pasted)
 
