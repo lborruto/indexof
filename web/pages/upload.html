@@ -22,7 +22,6 @@
   input[type=file] { max-width: 200px; }
   #q { width: 40%; }
   #n, #pg { white-space: nowrap; }
-  #scp { display: block; width: 100%; box-sizing: border-box; margin: 4px 0; }
   #d { white-space: nowrap; }
 }
 /* (A narrower phone: the links a little smaller and closer, five still on one line.) */
@@ -31,8 +30,10 @@
 }
 </style>
 <pre style="white-space: pre-wrap"><!-- (the upload line wraps where the window is too narrow for it, rather than scrolling sideways) -->
-<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button> <button onclick="document.getElementById('fd').click()">Upload folder</button><input type="file" id="fd" webkitdirectory hidden onchange="upFolder()">  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="56"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d" style="white-space: nowrap"></span><span id="s" style="display: block"></span>
+<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button> <button onclick="document.getElementById('fd').click()">Upload folder</button><input type="file" id="fd" webkitdirectory hidden onchange="upFolder()">  <button onclick="mk()">New folder</button></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d" style="white-space: nowrap"></span><span id="s" style="display: block"></span>
 </pre><hr>
+<!-- (At the very bottom, small and grey: the scp reminder on the left, the version on the right.) -->
+<div style="display: flex; flex-wrap: wrap; gap: 0 2em; font: 12px monospace; color: #888"><span id="sl" hidden>scp: <span id="scp" style="overflow-wrap: anywhere"></span> <a href="#" id="cp" style="margin-left: .5em">[copy]</a></span><a id="ver" style="color: #888; margin-left: auto"></a></div>
 <script>
 const msg = t => { document.getElementById('s').textContent = t ? '\n' + t : ''; }; // (a blank line above it)
 const enc = p => p.split('/').map(encodeURIComponent).join('/');
@@ -56,8 +57,8 @@ const copy = (text, note) => {
 // writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
 let settings = { mounts: {}, scp: null, scp_root: '/data' };
 const mountOf = p => p.split('/')[1] || '', writable = p => { const m = mountOf(p); return m !== '' && settings.mounts[m] === 'rw' && p.replace(/\/$/, '') !== '/' + m; };
-// (The search's results and the recent files: a list of files from anywhere, not a folder.)
-const recent = location.pathname === '/_recent', searching = recent || location.pathname === '/_search';
+// (The search's results: a list of files from anywhere, not a folder.)
+const searching = location.pathname === '/_search';
 let here = '/'; try { here = decodeURIComponent(location.pathname); } catch (e) {}
 fetch('/_space?p=' + encodeURIComponent(here), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { document.getElementById('d').textContent = t.trim(); });
 fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(s => {
@@ -69,29 +70,32 @@ fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).cat
   else if (settings.mounts[mountOf(here)] !== 'rw') { w.textContent = 'read-only folder'; w.hidden = false; }
   else { w.hidden = false; scpLine(); }
   actions(); if (list) count();
+  // The version, in the corner: indexof X.Y.Z, linking to its release; another build (main,
+  // dev) links to the project.
+  const v = settings.version, ver = document.getElementById('ver');
+  if (v) { ver.textContent = 'indexof ' + v; ver.href = 'https://github.com/lborruto/indexof' + (/^\d+\.\d+\.\d+$/.test(v) ? '/releases/tag/v' + v : ''); }
 });
-// The same upload from a terminal: scp into this folder, to the destination from the settings
-// (user@host) and the folder's path on that host: the root from the settings (where the mounted
-// folders are on it; /data, their place in the container, when none was given) and the page's
-// path. Only for folder paths of plain characters: an older scp hands the remote path to the
-// server's shell, where a space, a quote or $(...) would mean something else.
+// The same upload from a terminal, a reminder at the bottom: scp into this folder, to the
+// destination from the settings (user@host) and the folder's path on that host: the root from
+// the settings (where the mounted folders are on it; /data, their place in the container, when
+// none was given) and the page's path. In a writable folder, and only for folder paths of plain
+// characters: an older scp hands the remote path to the server's shell, where a space, a quote
+// or $(...) would mean something else; otherwise no line. Files picked for Upload are named in it.
 const scpDest = (s, p) => s.scp + ':' + s.scp_root + p;
 function scpLine() {
-  if (!settings.scp) { document.getElementById('sl').remove(); return; }
-  const quote = t => "'" + t.replace(/'/g, "'\\''") + "'", scp = document.getElementById('scp'), pick = document.getElementById('f');
-  const folder = settings.scp_root + here, dest = scpDest(settings, here);
-  const plain = /^[\p{L}\p{N}\/._@+-]+$/u.test(folder);
-  const fill = () => {
-    if (!plain) { scp.value = '(no scp here: the folder name has spaces or symbols; use Upload)'; return; }
-    const names = [...pick.files].map(f => quote(f.name)).join(' ');
-    scp.value = 'scp ' + (names || '<your files>') + ' ' + dest;
-  };
+  if (!settings.scp || !/^[\p{L}\p{N}\/._@+-]+$/u.test(settings.scp_root + here)) return;
+  const quote = t => "'" + t.replace(/'/g, "'\\''") + "'", cmd = document.getElementById('scp'), pick = document.getElementById('f');
+  const fill = () => { cmd.textContent = 'scp ' + ([...pick.files].map(f => quote(f.name)).join(' ') || '<your files>') + ' ' + scpDest(settings, here); };
   pick.addEventListener('change', fill); fill();
-  document.getElementById('cp').onclick = () => copy(scp.value, 'scp command copied: run it from the folder the files are in');
-  // A page never learns where a chosen file is on the computer, so for a command that works from
-  // anywhere: type scp, drag the files onto the terminal (it writes their full paths), paste this.
-  document.getElementById('cd').onclick = () => plain ? copy(dest, 'destination copied: type scp, drag your files onto the terminal, paste') : msg('no scp here: the folder name has spaces or symbols');
+  document.getElementById('cp').onclick = e => { e.preventDefault(); copy(cmd.textContent, 'copied: ' + cmd.textContent); };
+  document.getElementById('sl').hidden = false;
 }
+// [scp] on a file: a command that downloads it into the terminal's current folder,
+// scp 'user@host:/root/path/name' . (a download: read-only folders too). OpenSSH 9's scp speaks
+// SFTP, no remote shell, so the one single-quoted argument is enough for spaces, accents, ( ) & #.
+// Left out for a path holding ' " \ $ ` ! or a control character (a quote would end the
+// argument, the others mean something to a shell along the way), or * ? [ (patterns to scp).
+const scpGet = p => settings.scp && !/['"\\$`!*?\[\x00-\x1f\x7f]/.test(settings.scp_root + p) ? "scp '" + scpDest(settings, p) + "' ." : '';
 // The listing (a folder's, or the search's results): each line in a span of its own, to filter, sort and page.
 const list = document.getElementById('list') || (searching ? null : document.querySelector('pre')), rows = [];
 if (list) [...list.querySelectorAll('a')].forEach(a => {
@@ -123,11 +127,11 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
   row.size = bytes(info.trim().split(/\s+/).pop() || '-');
   rows.push(row);
 });
-// Above it: the search (a folder: this list as you type; Enter or Search: the search page), the
-// recent files (/_recent: the 50 last modified, everywhere), sort, pages of 100.
+// Above it: the search (a folder: this list as you type; Enter or Search: the search page), sort,
+// pages of 100.
 const PAGE = 100, bar = document.createElement('pre');
 bar.style.whiteSpace = 'pre-wrap'; // (wraps on a narrow window, like the upload line)
-bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + (recent ? '' : '<a href="/_recent">Recent</a> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
+bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
 if (list) list.before(bar);
 const q = document.getElementById('q');
 let page = 0, shown = rows, key = '', dir = 1;
@@ -139,7 +143,7 @@ function show() {
   rows.forEach(r => { r.style.display = 'none'; });
   shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.style.display = ''; });
   const max = list.dataset.max ? +list.dataset.max : 0;
-  document.getElementById('n').textContent = '(' + shown.length + (recent ? ' recent' : searching ? ' found' + (rows.length >= max ? ', the first ' + max : '') : f ? ' matching' : ' items') + ')';
+  document.getElementById('n').textContent = '(' + shown.length + (searching ? ' found' + (rows.length >= max ? ', the first ' + max : '') : f ? ' matching' : ' items') + ')';
   document.getElementById('pg').textContent = 'page ' + (page + 1) + '/' + pages;
   measure(shown.slice(page * PAGE, page * PAGE + PAGE));
 }
@@ -223,18 +227,20 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders; [download] and [raw]
-// (the file as the server sends it, in the browser, in a new tab) for every file; [link] on every
-// line; [vlc] for videos and sound; [rename] [delete] in a writable folder (never the folder itself).
+// (the file as the server sends it, in the browser, in a new tab) for every file, and [scp] when
+// there is an scp destination; [vlc] for videos and sound; [rename] [delete] in a writable folder
+// (never the folder itself).
 function actions() {
   rows.forEach(row => {
     const acts = [];
     const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); return l; };
     if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path)).onclick = e => { e.preventDefault(); zipOk([row]).then(ok => { if (ok) location.href = e.target.href; }); };
-    else { link('download', enc(row.path)).download = ''; newTab(link('raw', enc(row.path))); }
-    // The item's address, copied: the folder, or the file as [raw] serves it. (Not a share link:
-    // whoever opens it logs in first.)
-    act('link', () => { const u = location.origin + enc(row.path); copy(u, 'link copied: ' + u); });
+    else {
+      link('download', enc(row.path)).download = ''; newTab(link('raw', enc(row.path)));
+      const c = scpGet(row.path);
+      if (c) act('scp', () => copy(c, 'copied: ' + c));
+    }
     if (VIDEO.test(row.path) || AUDIO.test(row.path)) act('vlc', () => vlc(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;

@@ -6,7 +6,8 @@
 #                       uploads, new folders, rename/move and delete; one mounted read-only (:ro)
 #                       is browse-only. The folder itself is listed but never deleted or moved.
 #   /tmp/settings.json  for the pages (/_settings): {"mounts":{"name":"ro"|"rw",...},"scp":...,
-#                       "scp_root":...} (the scp line's destination and the folders' place on it)
+#                       "scp_root":...,"version":...} (the scp lines' destination, the folders'
+#                       place on it, and the version in the pages' corner)
 #   /tmp/indexof-home/  a link to each folder: what the home page lists.
 # A folder is refused, with a line in the log, when its name starts with a dot (hidden) or an
 # underscore (the page's own routes: /_login, /_search...), or holds a character nginx's config
@@ -38,6 +39,11 @@ case "$root" in
 esac
 case "$(printf '%s' "$root" | tr -d '\001-\037\177')" in "$root") ;; *) echo "indexof: INDEXOF_SCP_ROOT holds a control character: refusing it" >&2; exit 1 ;; esac
 while [ "$root" != "${root%/}" ]; do root=${root%/}; done # (a trailing slash dropped; / itself is empty)
+
+# The version, from the image (INDEXOF_VERSION, set when it is built: 1.4.1, main, dev): letters,
+# digits and . _ + - only, as it goes into the settings JSON and a link; dev otherwise.
+version=${INDEXOF_VERSION:-dev}
+case "$version" in *[!A-Za-z0-9._+-]*) echo "indexof: INDEXOF_VERSION holds other characters than letters, digits and . _ + -: dev instead" >&2; version=dev ;; esac
 
 conf=/tmp/mounts.conf
 json=/tmp/settings.json
@@ -168,6 +174,7 @@ done
 unset IFS; set +f
 
 # The settings: the folders, in the listing's order, the scp destination (user@host) when one
-# is set, and the folders' place on that host (for the scp line: root + the page's path).
+# is set, the folders' place on that host (for the scp lines: root + the page's path), and the
+# version.
 if [ -n "$scp" ]; then scp=$(jsonstr "$scp"); else scp=null; fi
-printf '{"mounts":{%s},"scp":%s,"scp_root":%s}\n' "${members#,}" "$scp" "$(jsonstr "$root")" >"$json"
+printf '{"mounts":{%s},"scp":%s,"scp_root":%s,"version":"%s"}\n' "${members#,}" "$scp" "$(jsonstr "$root")" "$version" >"$json"

@@ -3,6 +3,9 @@
 Thanks for helping. indexof serves people's files, so the bar is: nothing weaker than today's
 checks, no secrets anywhere, and every change tested on the demo data.
 
+indexof is meant to stay straight and simple: nginx's listing plus the few things you reach for
+every week, not a long list of advanced features. A new feature has to be small and fit that.
+
 Contents: [Set up](#set-up) · [Run it on demo data](#run-it-on-demo-data) · [Checks](#checks) ·
 [Principles](#principles) · [Commits and pull requests](#commits-and-pull-requests) ·
 [Never commit secrets or real data](#never-commit-secrets-or-real-data) ·
@@ -98,7 +101,7 @@ injection attempts). It needs Docker, Compose v2 and Python 3, and leaves nothin
   writable, decided by whether the folder can be written) and a small JSON of settings the pages
   read at `/_settings`. nginx checks the login cookie, serves the "Index of /" listing, takes the
   WebDAV methods for writable folders, verifies the signed links, and proxies `/_space`,
-  `/_size`, `/_search`, `/_recent`, `/_zip`, `/_probe`, `/_sub`, `/_remux` and `/_vlc` to the
+  `/_size`, `/_search`, `/_zip`, `/_probe`, `/_sub`, `/_remux` and `/_vlc` to the
   helper.
 - **`helper/`**, the `indexof-helper` image: Alpine with busybox httpd, `zip` and `ffmpeg`,
   running the CGI shell scripts in `helper/cgi-bin/`. `lib.sh` holds the one path check every

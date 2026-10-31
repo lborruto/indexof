@@ -4,10 +4,12 @@
 // folder itself; the free space on the home page; [delete selected] [move selected] for ticked
 // lines of a writable folder only, and doing it; files dropped on the page uploaded (a drop
 // anywhere else doing nothing), a folder dropped or picked going up whole, a picture pasted;
-// what a file's name, [download] and [raw] do; [link] copying the address; a big zip asked
-// first; the Recent link and /_recent; the pages on a phone. Works in a folder of its own, ui-test, made in the writable folder and removed at the
-// end. Drives a Chrome already
-// running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
+// what a file's name, [download] and [raw] do; [scp] copying the command that downloads a file;
+// the scp reminder at the bottom of a writable folder only; the version in the corner; a big zip
+// asked first; the search's results lined up; the pages on a phone. Works in a folder of its own,
+// ui-test, made in the writable folder and removed at the end. Drives a Chrome already running
+// with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install). The
+// stack's scp destination is me@nas.example, its root /srv/files, its version test.
 //
 //   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui.mjs http://127.0.0.1:18099 share movies many
 //   argument 1  the page's address; 2  a writable folder; 3  a read-only folder; 4  (optional) a
@@ -71,17 +73,49 @@ await dav('MKCOL', t);
 for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.pdf', 'f.bin']) await dav('PUT', t + n, n + '\n');
 await dav('MKCOL', t + 'sub/');
 await show(t);
-// [link] on a file and on a folder: the item's whole address, copied, and said on the page. A
-// folder's [zip], and [zip selected], over 20 GiB: asked first, nothing started when refused.
+// [scp] on a file: the command that downloads it into the terminal's folder, copied, and said
+// on the page; none on a folder, none on a name holding a quote. No [link] any more. A folder's
+// [zip], and [zip selected], over 20 GiB: asked first, nothing started when refused.
 const click = (n, label) => ev(`(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); const l = a && [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === ${JSON.stringify(label)}); if (l) l.click(); return !!l; })()`);
-for (const n of ['a.txt', 'sub/']) {
-  const want = new URL(base).origin + t.split('/').map(encodeURIComponent).join('/') + n;
-  const had = await click(n, '[link]');
+const has = (n, label) => ev(`(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); return !!a && [...a.parentNode.querySelectorAll('a')].some(x => x.textContent === ${JSON.stringify(label)}); })()`);
+const scpSaid = async (n, want) => {
+  const had = await click(n, '[scp]');
   await sleep(300);
   const said = (await ev(`document.getElementById('s').textContent`)).trim();
   const copied = clip ? await ev(`navigator.clipboard.readText().catch(e => 'unreadable: ' + e.message)`) : null;
-  check(had && said === 'link copied: ' + want && (copied === null || copied === want || copied.startsWith('unreadable')), `${t}${n}: [link] copies ${want}: "${said}"${copied === null ? '' : ', clipboard: ' + copied}`);
+  check(had && said === 'copied: ' + want && (copied === null || copied === want || copied.startsWith('unreadable')), `${n}: [scp] copies ${want}: "${said}"${copied === null ? '' : ', clipboard: ' + copied}`);
+};
+await scpSaid('a.txt', `scp 'me@nas.example:/srv/files${t}a.txt' .`);
+check(!(await has('sub/', '[scp]')) && !(await has('a.txt', '[link]')) && !(await has('sub/', '[link]')), `${t}: no [scp] on a folder, no [link] anywhere`);
+await dav('PUT', t + "it's.txt", 'q\n');
+await show(t);
+check(await has("it's.txt", '[download]') && !(await has("it's.txt", '[scp]')), `${t}it's.txt: no [scp] for a name holding a quote`);
+await dav('DELETE', t + "it's.txt");
+// The scp reminder: at the very bottom of a writable folder (below the listing and the upload
+// line, at the left), for this folder; none on the home page, the search, a read-only folder or a
+// folder whose path is not plain (My Stuff: a space). The version in the corner, on the right.
+const bottom = () => ev(`(() => { const l = document.getElementById('sl'), v = document.getElementById('ver'), hr = [...document.querySelectorAll('hr')].pop();
+  const r = l.getBoundingClientRect(), vr = v.getBoundingClientRect();
+  return { shown: !l.hidden && r.height > 0, text: l.textContent, left: Math.round(r.left), below: r.top >= hr.getBoundingClientRect().bottom,
+    ver: v.textContent, href: v.getAttribute('href'), right: Math.round(document.documentElement.clientWidth - vr.right), vbelow: vr.top >= hr.getBoundingClientRect().bottom }; })()`);
+let b = await bottom();
+check(b.shown && b.text === `scp: scp <your files> me@nas.example:/srv/files${t} [copy]` && b.below && b.left < 20, `${t}: the scp reminder at the bottom left: "${b.text}" (left ${b.left})`);
+check(b.ver === 'indexof test' && b.href === 'https://github.com/lborruto/indexof' && b.vbelow && b.right < 20, `${t}: "${b.ver}" in the bottom right corner (${b.right} px from the edge), linking to ${b.href}`);
+await ev(`document.getElementById('cp').click(); 1`);
+await sleep(300);
+const saidCp = (await ev(`document.getElementById('s').textContent`)).trim();
+check(saidCp === `copied: scp <your files> me@nas.example:/srv/files${t}`, `${t}: the reminder's [copy]: "${saidCp}"`);
+for (const [what, url] of [['/', '/'], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['/My Stuff/', '/My%20Stuff/']]) {
+  await send('Page.navigate', { url: base + url }, sessionId); await sleep(2500);
+  b = await bottom();
+  check(!b.shown && b.ver === 'indexof test', `${what}: no scp reminder, the version in the corner`);
 }
+await send('Page.navigate', { url: base + `/${encodeURIComponent(ro)}/` }, sessionId); await sleep(2500);
+const roFile = await ev(`[...document.querySelectorAll('pre span > a')].map(a => a.textContent).find(n => !n.endsWith('/') && !/['"\\$\`!*?[]/.test(n))`);
+await scpSaid(roFile, `scp 'me@nas.example:/srv/files/${ro}/${roFile}' .`);
+await send('Page.navigate', { url: base + '/_login' }, sessionId); await sleep(1500);
+check(await ev(`!document.getElementById('ver') && !document.body.textContent.includes('indexof test')`), '/_login: no version');
+await show(t);
 const zipAt = async (size, what) => {
   downloads.length = 0;
   await ev(`window.asked = []; window.confirm = q => { asked.push(q); return false; }; HTMLFormElement.prototype.submit = function () { asked.push('submitted'); }; 1`);
@@ -193,15 +227,23 @@ const fits = () => ev(`(() => { const v = document.querySelector('meta[name=view
 const tap = `(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'ui-test/'), l = n && n.parentNode; if (!l) return null;
   const f = n => [...l.querySelectorAll('a')].find(a => a.textContent === n).getBoundingClientRect(), r = f('[rename]'), d = f('[delete]'), a = l.querySelector('a').getBoundingClientRect();
   return { h: Math.round(Math.min(r.height, d.height)), gap: Math.round(d.top >= r.bottom ? 99 : d.left - r.right), one: Math.abs(a.top - d.top) < 2 }; })()`;
-// Recent: a link in the bar of every listing (not on its own page), to /_recent: the files last
-// modified, listing lines like a folder's, [download] and [raw] on each, no upload line.
-await show(t);
-check(await ev(`(document.querySelector('a[href="/_recent"]') || {}).textContent === 'Recent'`), `${t}: a Recent link in the bar`);
-await visit('/_recent');
-const rec = await ev(`(() => { const l = [...document.querySelectorAll('#list span.r')]; return { n: l.length, dl: l.filter(s => [...s.querySelectorAll('a')].some(a => a.textContent === '[download]')).length, up: !!document.getElementById('w'), self: !!document.querySelector('a[href="/_recent"]'), count: document.getElementById('n').textContent }; })()`);
-check(rec.n > 0 && rec.dl === rec.n && !rec.up && !rec.self, `/_recent: ${rec.n} lines, ${rec.dl} with [download], ${rec.count}, no upload line, no link to itself`);
+// The search's results, lined up as nginx's own listing: a long path and a short one, their
+// dates at the same x (on a computer; a phone has each line in two). No Recent link any more.
+await dav('MKCOL', t + 'a folder with a rather long name, to push the columns/');
+await dav('PUT', t + 'a folder with a rather long name, to push the columns/aligned-long.txt', 'x\n');
+await dav('PUT', t + 'aligned-short.txt', 'x\n');
+const dateX = `(() => [...document.querySelectorAll('#list span.r')].map(r => { const t = [...r.childNodes].find(n => n.nodeType === 3 && /\\d\\d-\\w\\w\\w-\\d{4}/.test(n.textContent)); if (!t) return null;
+  const g = document.createRange(), i = t.textContent.search(/\\d\\d-\\w\\w\\w-\\d{4}/); g.setStart(t, i); g.setEnd(t, i + 1); return [r.querySelector('a').getAttribute('title'), Math.round(g.getBoundingClientRect().left)]; }))()`;
+for (const w of [1400, 1024]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
+  await visit('/_search?q=aligned-&in=' + encodeURIComponent(rw + '/ui-test'));
+  const xs = await ev(dateX), at = new Set((xs || []).map(x => x && x[1]));
+  check(xs && xs.length === 2 && xs.every(x => x && x[0]) && at.size === 1, `${w} px screen: the search's results, a long and a short path, their dates at the same x (${JSON.stringify(xs)})`);
+  check(!(await ev(`!!document.querySelector('a[href="/_recent"]')`)), `${w} px screen: the search: no Recent link`);
+}
+await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 await phone(true);
-for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['/_recent', '/_recent'], ['/_login', '/_login']]) {
+for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['the search, a long path', '/_search?q=aligned-&in='], ['/_login', '/_login']]) {
   await visit(url);
   const f = await fits();
   check(f.vp && f.sw <= f.cw, `390 px phone: ${what}: ${f.vp ? 'viewport tag' : 'NO viewport tag'}, ${f.sw} px wide in ${f.cw}`);
@@ -209,11 +251,11 @@ for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`
 await visit(`/${encodeURIComponent(rw)}/`);
 let taps = await ev(tap);
 check(taps && taps.h >= 28 && taps.gap >= 12, `390 px phone: /${rw}/: [rename] and [delete] ${taps && taps.h} px tall, ${taps && taps.gap} px apart`);
-// (e.pdf's line, a short name with [download] [raw] [link] [rename] [delete]: under 2.6 times the name's line.)
+// (e.pdf's line, a short name with [download] [raw] [scp] [rename] [delete]: under 2.6 times the name's line.)
 await visit(`/${encodeURIComponent(rw)}/ui-test/`);
 const two = await ev(`(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'e.pdf'), l = n && n.parentNode; if (!l) return null;
   return { h: Math.round(l.getBoundingClientRect().height), lh: parseFloat(getComputedStyle(n).lineHeight), links: [...l.querySelectorAll('a')].slice(1).map(a => a.textContent).join(' ') }; })()`);
-check(two && two.links === '[download] [raw] [link] [rename] [delete]' && two.h < 2.6 * two.lh, `390 px phone: ${t}e.pdf: its line ${two && two.h} px tall, the name's line ${two && two.lh} px (${two && two.links})`);
+check(two && two.links === '[download] [raw] [scp] [rename] [delete]' && two.h < 2.6 * two.lh, `390 px phone: ${t}e.pdf: its line ${two && two.h} px tall, the name's line ${two && two.lh} px (${two && two.links})`);
 await phone(false);
 await visit(`/${encodeURIComponent(rw)}/`);
 taps = await ev(tap);

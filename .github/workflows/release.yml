@@ -4,7 +4,8 @@ name: Release
 # latest, then creates the GitHub release from that version's section of CHANGELOG.md. Each
 # image (web/ → ghcr.io/<owner>/indexof, helper/ → ghcr.io/<owner>/indexof-helper) is built for
 # linux/amd64 and linux/arm64 with provenance and SBOM attestations, and the pushed digest is
-# scanned by Trivy. The packages stay private until the owner makes them public.
+# scanned by Trivy. The page's image gets its version as INDEXOF_VERSION (X.Y.Z, or main), shown
+# in the pages' corner. The packages stay private until the owner makes them public.
 on:
   push:
     branches: [main]
@@ -87,6 +88,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # (X.Y.Z from the tag, main on main: the same version as the image's
+          # org.opencontainers.image.version label, which metadata-action sets.)
+          build-args: ${{ matrix.image == 'indexof' && format('INDEXOF_VERSION={0}', steps.meta.outputs.version) || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
