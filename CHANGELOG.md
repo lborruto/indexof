@@ -9,15 +9,38 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ### Added
 
-- On a phone, the same pages fit the screen: the listing's lines wrap (the name, then the date,
-  the size and the links under it, big enough to tap), and so do the search, the upload line,
-  the viewer and the login page. On a computer nothing changes.
+- On a phone, the same pages fit the screen: each file in about two lines (the name with a short
+  date and the size, then its links, big enough to tap), about 15 files a screen; the search,
+  the upload line, the viewer and the login page fit too. On a computer nothing changes.
+- Paste to upload: in a writable folder, pasting files (a screenshot, say) uploads them; a
+  nameless picture is named for when it was pasted, "Pasted 2026-10-31 18.42.05.png".
+- Whole folders upload with their structure, dropped on the page or picked with the new
+  "Upload folder" button: folders are created (empty ones too), hidden files left out and
+  counted, and you are asked first above 1,000 files.
+- Recent: a link in the bar of the home page and every listing, opening `/_recent`: the 50 most
+  recently changed files across the mounted folders, newest first, with the same checkboxes,
+  links and zip as the search results.
+- "inside text files" on the search page: finds the words inside text files (notes, logs,
+  subtitles, configuration, code; under 5 MB each) in the chosen folder, ignoring case, matched
+  exactly as typed, 200 results at most.
+- Under a picture in the viewer: its size in pixels, the file's size and, for a JPEG, when it was
+  taken and the camera (from its Exif; never the location).
+- Subtitle files next to a video (`Movie.srt`, `Movie.fr.srt`, `.vtt`, `.ass`, `.ssa`) appear in
+  the player's subtitle list as "fr (file)" or "file", converted to WebVTT (5 MB at most).
 
 ### Changed
 
 - A PDF's name and every `[raw]` (in the listing and in the viewer) open in a new tab, the
   listing or the viewer kept; the viewer's links, `[download]`, folders and `[zip]` stay in the
   same tab.
+
+### Fixed
+
+- The search page's "in:" list showed a blank choice instead of "everywhere" when a folder's
+  name held a line break; such names are left out, and "everywhere" is selected when no folder
+  is.
+- On a computer screen narrower than about 1,300 px, the upload line (with the scp line) made
+  the page scroll sideways; it now wraps.
 
 ## [1.2.0] - 2026-10-31
 
