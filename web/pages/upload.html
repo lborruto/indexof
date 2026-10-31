@@ -241,7 +241,7 @@ async function moveSelected() {
   });
 }
 // Uploads: a line for each file (size, how far along, time left, [cancel]), three at a time, in
-// one queue however many times Upload is pressed.
+// one queue however many times Upload is pressed or files are dropped on the page.
 function time(s) { s = Math.round(s); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm'; }
 function human(n) { const u = ['', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + u[i]; }
 const jobs = [];
@@ -283,6 +283,9 @@ function up() {
   const input = document.getElementById('f'), files = [...input.files];
   if (!files.length) { msg('choose files first'); return; }
   input.value = '';
+  upload(files);
+}
+function upload(files) {
   let box = document.getElementById('ups');
   if (!box) {
     box = document.createElement('pre'); box.id = 'ups';
@@ -307,4 +310,36 @@ async function mk() {
   const r = await fetch(location.pathname + encodeURIComponent(n) + '/', { method: 'MKCOL' });
   if (r.ok) location.reload(); else msg('failed (' + r.status + ')');
 }
+// Drag and drop: files dropped on the page go up as if picked, in a folder where the upload line
+// shows; a folder is left out (the browser hands over no content for one). Anywhere else a drop
+// does nothing, rather than the browser leaving the page to open the file.
+const droppable = () => !searching && settings.mounts[mountOf(here)] === 'rw';
+let dragOff = 0;
+document.addEventListener('dragover', e => {
+  e.preventDefault();
+  if (!e.dataTransfer) return;
+  const files = [...e.dataTransfer.types].includes('Files') && droppable();
+  e.dataTransfer.dropEffect = files ? 'copy' : 'none';
+  if (!files) return;
+  // (A dashed outline while files are over the page; dragover comes every few ms, so its end is
+  // when they stop coming: leaving the window or dropping.)
+  document.body.style.outline = '2px dashed #888'; document.body.style.outlineOffset = '-4px';
+  clearTimeout(dragOff); dragOff = setTimeout(() => { document.body.style.outline = ''; }, 300);
+});
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  clearTimeout(dragOff); document.body.style.outline = '';
+  if (!droppable() || !e.dataTransfer) return;
+  const files = [];
+  let folders = 0;
+  // (The entries are read now: the list is emptied once the event is over.)
+  const items = e.dataTransfer.items ? [...e.dataTransfer.items].filter(i => i.kind === 'file') : null;
+  if (items) items.forEach(i => {
+    const entry = i.webkitGetAsEntry && i.webkitGetAsEntry(), f = i.getAsFile();
+    if (!f || (entry && entry.isDirectory)) folders++; else files.push(f);
+  });
+  else files.push(...e.dataTransfer.files);
+  if (files.length) upload(files);
+  if (folders) msg('folders are not uploaded: zip them or use scp');
+});
 </script>
