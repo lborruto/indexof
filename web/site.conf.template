@@ -70,8 +70,9 @@ server {
         default_type text/html;
         alias /etc/nginx/pages/play.html;
     }
-    # The player's tracks: what is in the file, a subtitle track as WebVTT, and the file repackaged
-    # with another audio track (copied as it is, never converted: a browser plays only the default).
+    # The player's tracks: what is in the file, a subtitle track (or a subtitle file next to it) as
+    # WebVTT, and the file repackaged with another audio track (copied as it is, never converted:
+    # a browser plays only the default).
     location = /_probe {
         if ($indexof_cookie = 0) { return 403; }
         proxy_pass $helper/cgi-bin/probe$is_args$args;
