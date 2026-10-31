@@ -150,7 +150,8 @@ check((await ev(`document.getElementById('s').textContent`)).includes('2 hidden 
 await sleep(3000);
 check((await dav('GET', t + 'dropped/x/y.txt')).status === 200 && (await dav('GET', t + 'dropped/z.txt')).status === 200 && (await dav('GET', t + 'dropped/empty/')).status === 200, `${t}: a dropped folder went up with its files and its empty folder`);
 // A phone (390 px wide, Chrome's device mode): the viewport tag, no page wider than the screen,
-// [rename] and [delete] tall enough for a finger and apart; on a computer, a line still one line.
+// [rename] and [delete] tall enough for a finger and apart, a line of the listing in two (the name,
+// its date and size; the links under it); on a computer, a line still one line.
 const phone = on => send('Emulation.setDeviceMetricsOverride', on ? { width: 390, height: 844, deviceScaleFactor: 2, mobile: true } : { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
 const visit = async url => { await send('Page.navigate', { url: base + url }, sessionId); await sleep(2500); };
 const fits = () => ev(`(() => { const v = document.querySelector('meta[name=viewport]'), d = document.documentElement; return { vp: !!v && /width=device-width/.test(v.content), sw: d.scrollWidth, cw: d.clientWidth }; })()`);
@@ -173,7 +174,12 @@ for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`
 }
 await visit(`/${encodeURIComponent(rw)}/`);
 let taps = await ev(tap);
-check(taps && taps.h >= 32 && taps.gap >= 16, `390 px phone: /${rw}/: [rename] and [delete] ${taps && taps.h} px tall, ${taps && taps.gap} px apart`);
+check(taps && taps.h >= 28 && taps.gap >= 12, `390 px phone: /${rw}/: [rename] and [delete] ${taps && taps.h} px tall, ${taps && taps.gap} px apart`);
+// (e.pdf's line, a short name with [download] [raw] [rename] [delete]: under 2.6 times the name's line.)
+await visit(`/${encodeURIComponent(rw)}/ui-test/`);
+const two = await ev(`(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'e.pdf'), l = n && n.parentNode; if (!l) return null;
+  return { h: Math.round(l.getBoundingClientRect().height), lh: parseFloat(getComputedStyle(n).lineHeight), links: [...l.querySelectorAll('a')].slice(1).map(a => a.textContent).join(' ') }; })()`);
+check(two && two.links === '[download] [raw] [rename] [delete]' && two.h < 2.6 * two.lh, `390 px phone: ${t}e.pdf: its line ${two && two.h} px tall, the name's line ${two && two.lh} px (${two && two.links})`);
 await phone(false);
 await visit(`/${encodeURIComponent(rw)}/`);
 taps = await ev(tap);

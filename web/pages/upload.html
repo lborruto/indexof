@@ -1,20 +1,33 @@
 <style>
 /* A phone (the listing's own page has no style): the same lines, wrapped to the width. A line of
-   the listing: the box and the name, then the date, the size and the links under it, big enough
-   for a finger and apart enough not to hit the next one. */
+   the listing in two: the box and the name, then its date (shorter) and size, smaller; under it
+   the links, tall enough for a finger and apart enough not to hit the next one. A thin rule
+   between lines. (The line's own text, the long date and the spaces, is set to nothing.) */
 @media (max-width: 700px) {
-  h1 { font-size: 1.5em; overflow-wrap: anywhere; }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
-  .r { display: block; white-space: normal; padding: 2px 0 2px 35px; text-indent: -35px; }
+  h1 { font-size: 1.4em; margin: .4em 0; overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; margin: .5em 0; }
+  pre a { display: inline-block; padding: 5px 0; }
+  .r { display: block; white-space: normal; font-size: 0; line-height: 0; padding: 2px 0 0 24px; text-indent: -24px; border-top: 1px solid #e3e3e3; }
   .r * { text-indent: 0; }
-  pre a { display: inline-block; padding: 8px 0; }
-  .r > a:first-of-type { display: inline; line-height: 2; }
-  .r > a:first-of-type::after { content: '\A'; white-space: pre; }
-  .r > a ~ a { margin-right: 10px; }
-  input[type=checkbox] { width: 20px; height: 20px; margin: 0 6px 0 0; vertical-align: middle; }
+  .r > a:first-of-type { display: inline; padding: 4px 0; margin-right: 8px; font-size: 15px; line-height: 22px; }
+  .r .sz { font-size: 12px; line-height: 1; color: #666; white-space: nowrap; }
+  .r .sz::before { content: attr(data-d); }
+  .r .sz::after { content: '\A'; white-space: pre; }
+  .r > a ~ a { padding: 7px 0; font-size: 13px; line-height: 16px; margin-left: 14px; }
+  .r .sz + a { margin-left: 0; }
+  input[type=checkbox] { width: 15px; height: 15px; margin: 0 1px 0 0; vertical-align: -2px; }
+  .r input[type=checkbox] { margin-right: 9px; }
   input, button, select { font-size: 16px; }
+  button, input[type=file] { font-size: 14px; }
+  input[type=file] { max-width: 200px; }
+  #q { width: 40%; }
+  #n, #pg { white-space: nowrap; }
   #scp { display: block; width: 100%; box-sizing: border-box; margin: 4px 0; }
   #d { white-space: nowrap; }
+}
+/* (A narrower phone: the links a little smaller and closer, five still on one line.) */
+@media (max-width: 370px) {
+  .r > a ~ a { font-size: 12px; margin-left: 12px; }
 }
 </style>
 <pre>
@@ -88,8 +101,10 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
   // The size column in a span of its own (a folder's size is filled in once measured).
   const m = info.match(/^([\s\S]*?)(\s*\S+)(\s*)$/);
   if (m) { t.textContent = m[1]; row.sz = document.createElement('span'); row.sz.textContent = m[2]; row.szLen = m[2].length; t.after(row.sz, m[3]); }
-  row.className = 'r'; // (a phone puts the date, the size and the links under the name)
+  row.className = 'r'; // (a phone: the name, its date and size after it, the links under them)
   const d = info.match(/(\d\d)-(\w\w\w)-(\d{4}) (\d\d):(\d\d)/);
+  // (A phone shows the date before the size, shorter: the year only when not this one.)
+  if (row.sz) { row.sz.className = 'sz'; if (d) row.sz.dataset.d = d[1] + '-' + d[2] + (+d[3] === new Date().getFullYear() ? ' ' + d[4] + ':' + d[5] : '-' + d[3]); }
   row.name = a.textContent.toLowerCase();
   row.path = decodeURIComponent(new URL(a.getAttribute('href'), location.href).pathname);
   row.folder = row.path.endsWith('/');
