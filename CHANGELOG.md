@@ -7,6 +7,8 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-31
+
 ### Changed
 
 - A click on a file's name opens it: in the viewer for videos, music, pictures and text files,
@@ -118,7 +120,8 @@ history.
   over the whole history, Trivy on both images and the Dockerfiles; Dependabot for the base
   images and the actions.
 
-[Unreleased]: https://github.com/lborruto/indexof/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/lborruto/indexof/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lborruto/indexof/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lborruto/indexof/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lborruto/indexof/releases/tag/v1.0.0
