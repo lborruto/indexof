@@ -17,6 +17,11 @@ set -eu
 secret=${INDEXOF_LINK_SECRET:-}
 [ ${#secret} -ge 32 ] || { echo "indexof: set INDEXOF_LINK_SECRET to 32 characters or more (openssl rand -hex 32), never the password" >&2; exit 1; }
 [ "$secret" != "$INDEXOF_PASSWORD" ] || { echo "indexof: INDEXOF_LINK_SECRET must not be the password" >&2; exit 1; }
+# Both go into the nginx config as they are: only characters that cannot change its meaning
+# (what openssl rand -hex / -base64 give).
+plain() { case "$2" in *[!A-Za-z0-9._~+/=-]*) echo "indexof: $1 may hold only letters, digits and . _ ~ + / = - (openssl rand -hex 32)" >&2; exit 1 ;; esac; }
+plain INDEXOF_PASSWORD "$INDEXOF_PASSWORD"
+plain INDEXOF_LINK_SECRET "$secret"
 
 # The scp line's destination, when there is one: user@host or host (letters, digits, . _ - and
 # one @: nothing scp, a shell or the settings JSON could read otherwise), and the folder on that
@@ -109,6 +114,7 @@ for line in $mounts; do
   e=$(enc "$name")
   if [ "$mode" = rw ]; then
     files="client_body_temp_path \"/data/$name/.uploads\";
+        client_max_body_size 0; # (uploads: any size, here only)
         dav_methods PUT DELETE MOVE;
         create_full_put_path on;
         dav_access user:rw group:r all:r;

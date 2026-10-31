@@ -22,7 +22,7 @@ server {
     root /data;
     charset utf-8;
     disable_symlinks on;
-    client_max_body_size 0;
+    client_max_body_size 1m; # (uploads, in the writable folders only, have no limit)
     absolute_redirect off; # 302 /_login on the port the browser used, not nginx's 8080
     # The helper, looked up at each request (Docker's DNS, from the container's resolv.conf):
     # found again after it is recreated, and nginx starts without it.
