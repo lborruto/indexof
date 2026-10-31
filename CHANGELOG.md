@@ -7,8 +7,22 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
-The first release, 1.0.0: the file page of a private homelab, turned into a project anyone can
-run.
+## [1.0.0] - 2026-10-31
+
+The first release: the file page of a private homelab, turned into a project anyone can run.
+
+Security review before release: an independent attack on a running copy (authentication on every
+route and method, path traversal and symlink escapes, command injection in every helper parameter,
+cross-site scripting from names and media tags, signed-link forgery, WebDAV abuse, container
+hardening) found no critical, high or medium issue; its two low findings are fixed below. Trivy
+reports no fixable high or critical vulnerability in either image; gitleaks finds no secret in the
+history.
+
+### Security
+
+- The two secrets may hold only characters that cannot change the nginx config.
+- Request bodies are limited to 1 MB, except uploads into writable folders.
+- A zip takes at most 5000 paths.
 
 ### Added
 
@@ -60,3 +74,6 @@ run.
   images and the actions.
 
 [Unreleased]: https://github.com/lborruto/indexof/commits/main
+
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/lborruto/indexof/releases/tag/v1.0.0
