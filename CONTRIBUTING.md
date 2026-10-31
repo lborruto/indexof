@@ -29,6 +29,9 @@ is real, so screenshots and bug reports can show it.
     sh tests/make-demo.sh demo
     cp .env.example .env      # set INDEXOF_PASSWORD and INDEXOF_LINK_SECRET (openssl rand -hex 32)
 
+The script runs ffmpeg inside the helper image (`indexof-helper:test` once the integration test
+has built it, else the published one is pulled), so there is nothing to install for it.
+
 Then mount the demo folders under `/data` in `compose.yaml` (`./demo/movies:/data/movies:ro`
 for a browse-only one, `./demo/pictures:/data/pictures` for a writable one, …) and start it:
 `docker compose up --build`, then open
