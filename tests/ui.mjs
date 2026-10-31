@@ -3,8 +3,9 @@
 // read-only one, [rename] [delete] on lines inside a writable folder but never on a mounted
 // folder itself; the free space on the home page; [delete selected] [move selected] for ticked
 // lines of a writable folder only, and doing it; files dropped on the page uploaded (a drop
-// anywhere else doing nothing); what a file's name, [download] and [raw] do; the pages on a phone. Works in a folder of
-// its own, ui-test, made in the writable folder and removed at the end. Drives a Chrome already
+// anywhere else doing nothing); what a file's name, [download] and [raw] do; the Recent link and
+// /_recent; the pages on a phone. Works in a folder of its own, ui-test, made in the writable
+// folder and removed at the end. Drives a Chrome already
 // running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
 //
 //   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui.mjs http://127.0.0.1:18099 share movies many
@@ -110,8 +111,15 @@ const fits = () => ev(`(() => { const v = document.querySelector('meta[name=view
 const tap = `(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'ui-test/'), l = n && n.parentNode; if (!l) return null;
   const f = n => [...l.querySelectorAll('a')].find(a => a.textContent === n).getBoundingClientRect(), r = f('[rename]'), d = f('[delete]'), a = l.querySelector('a').getBoundingClientRect();
   return { h: Math.round(Math.min(r.height, d.height)), gap: Math.round(d.top >= r.bottom ? 99 : d.left - r.right), one: Math.abs(a.top - d.top) < 2 }; })()`;
+// Recent: a link in the bar of every listing (not on its own page), to /_recent: the files last
+// modified, listing lines like a folder's, [download] and [raw] on each, no upload line.
+await show(t);
+check(await ev(`(document.querySelector('a[href="/_recent"]') || {}).textContent === 'Recent'`), `${t}: a Recent link in the bar`);
+await visit('/_recent');
+const rec = await ev(`(() => { const l = [...document.querySelectorAll('#list span.r')]; return { n: l.length, dl: l.filter(s => [...s.querySelectorAll('a')].some(a => a.textContent === '[download]')).length, up: !!document.getElementById('w'), self: !!document.querySelector('a[href="/_recent"]'), count: document.getElementById('n').textContent }; })()`);
+check(rec.n > 0 && rec.dl === rec.n && !rec.up && !rec.self, `/_recent: ${rec.n} lines, ${rec.dl} with [download], ${rec.count}, no upload line, no link to itself`);
 await phone(true);
-for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['/_login', '/_login']]) {
+for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`], [`/${ro}/`, `/${encodeURIComponent(ro)}/`], ['the search', '/_search?q=txt&in='], ['/_recent', '/_recent'], ['/_login', '/_login']]) {
   await visit(url);
   const f = await fits();
   check(f.vp && f.sw <= f.cw, `390 px phone: ${what}: ${f.vp ? 'viewport tag' : 'NO viewport tag'}, ${f.sw} px wide in ${f.cw}`);

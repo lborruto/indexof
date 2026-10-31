@@ -99,6 +99,15 @@ server {
         sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
         add_header Cache-Control no-store always;
     }
+    # The 50 files last modified, in every mounted folder, listed like the search's results.
+    location = /_recent {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        proxy_pass $helper/cgi-bin/recent;
+        proxy_read_timeout 120s;
+        add_after_body /_upload;
+        sub_filter '<head>' '<head><meta name="viewport" content="width=device-width, initial-scale=1">';
+        add_header Cache-Control no-store always;
+    }
     location ~ /\. { deny all; }
     # The mounted folders, one block each.
     include /tmp/mounts.conf;

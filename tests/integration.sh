@@ -271,6 +271,7 @@ expect_status -n GET "/_sub?f=$MKV&s=0" 403
 expect_status -n GET '/_zip?p=/movies/' 302
 expect_status -n GET "/_remux?f=$MKV&a=1&t=0" 302
 expect_status -n GET '/_search?q=demo' 302
+expect_status -n GET /_recent 302
 expect_status -n GET "/_play?f=$MP4" 302
 expect_status -n PUT /share/x.txt 302 -T "$TMP/hello.txt"
 expect_no_file "$DATA/share/x.txt" 'upload without the cookie'
@@ -602,6 +603,86 @@ expect_no_body '/_search?q=x&in=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E' '<scr
 expect_search '/_search?q=notes&type=x&kind=x&max=7' '/share/notes.txt'
 expect_body '/_search?q=notes&type=x&kind=x&max=7' '<option value="" selected>all</option>'
 expect_body '/_search?q=notes&type=x&kind=x&max=7' '<option value="" selected>any</option>'
+# The "in:" list: "everywhere" chosen when no folder is; a folder whose name holds a line break
+# (share's a<LF>) or another control character is left out (a line break once made it two
+# options, the empty one taking "everywhere"'s place).
+mkdir -p "$DATA/share/c${ctl}d" || exit 1
+expect_body '/_search?q=Buck' '<option value="" selected>everywhere</option>'
+expect_no_body '/_search?q=Buck' '<option value="" selected></option>'
+expect_no_body '/_search?q=Buck' 'value="share/a"'
+expect_no_body '/_search?q=Buck' 'value="share/c'
+expect_body '/_search?q=Buck&in=movies' '<option value="">everywhere</option>'
+expect_body '/_search?q=Buck&in=movies' '<option value="movies" selected>movies</option>'
+rmdir "$DATA/share/c${ctl}d"
+
+# Inside text files (text=1): the viewer's text kinds, under 5 MB, holding the words as they
+# are (case aside), in the folder chosen, 200 at most; never a binary file, a big one, a hidden
+# one or a symbolic link; the words are a fixed string, never a pattern, an option or the shell's.
+N="$DATA/My Stuff/notes"
+mkdir -p "$N/cap" "$N/.dot" || exit 1
+printf 'A yellow zebrafish42 swims here.\n' >"$N/fish.txt"
+printf 'zebrafish42\n' >"$N/fish.bin"
+{ head -c 6000000 /dev/zero | tr '\0' 'x'; printf '\nzebrafish42\n'; } >"$N/huge.txt"
+printf 'zebrafish42\n' >"$N/.hidden.txt"
+printf 'zebrafish42\n' >"$N/.dot/in.txt"
+ln -s fish.txt "$N/link.txt"
+# shellcheck disable=SC2016 # (written as it is: the search must find it as it is)
+printf 'run $(id) and x*y, then -v\n' >"$N/shell.md"
+i=0; while [ $i -lt 250 ]; do echo 'capword' >"$N/cap/c-$i.log"; i=$((i + 1)); done
+expect_search '/_search?q=zebrafish42&text=1' '/My%20Stuff/notes/fish.txt'
+expect_search_count '/_search?q=zebrafish42&text=1' 1
+expect_search_count '/_search?q=ZebraFish42&text=1' 1
+expect_search_count '/_search?q=zebrafish42' 0
+expect_search_count '/_search?q=zebrafish42&text=1&in=share' 0
+expect_search_count '/_search?q=zebrafish42&text=1&in=My%20Stuff/notes' 1
+expect_body '/_search?q=zebrafish42&text=1' '<h1>Search: zebrafish42 (inside text files)</h1>'
+expect_body '/_search?q=zebrafish42&text=1' 'name="text" value="1" checked>'
+expect_no_body '/_search?q=zebrafish42' 'name="text" value="1" checked>'
+expect_search_count '/_search?q=capword&text=1' 200
+expect_body '/_search?q=capword&text=1&max=2000' '<pre id="list" data-max="200">'
+expect_search_count '/_search?q=capword&text=1&max=100' 100
+expect_no_body '/_search?q=z&text=1' '<pre id="list"'
+expect_search '/_search?q=%24(id)&text=1' '/My%20Stuff/notes/shell.md'
+expect_search_count '/_search?q=%24(id)&text=1' 1
+# shellcheck disable=SC2016 # (as written)
+expect_body '/_search?q=%24(id)&text=1' '<h1>Search: $(id) (inside text files)</h1>'
+expect_no_body '/_search?q=%24(id)&text=1' 'uid='
+expect_search_count '/_search?q=%60id%60&text=1' 0
+expect_search_count '/_search?q=x*y&text=1' 1
+expect_search_count '/_search?q=**&text=1' 0
+expect_search_count '/_search?q=-v&text=1' 1
+expect_search_count '/_search?q=--help&text=1' 0
+expect_body '/_search?q=%22%3E%3Cb%3E&text=1' '<h1>Search: &quot;&gt;&lt;b&gt; (inside text files)</h1>'
+expect_no_body '/_search?q=%3Cscript%3Ealert(1)&text=1' '<script>alert'
+expect_search_count '/_search?q=root:&text=1&in=../../etc' 0
+expect_search_inside '/_search?q=zebrafish42&text=1&in=../../etc' '/My%20Stuff/notes/'
+
+# Recent: the 50 files last modified, everywhere, newest first, in the search's listing format
+# (the line under it, the viewport tag, never stored); never a folder, a hidden name or a
+# symbolic link, however new. (Their times set a day ahead: newer than anything else here.)
+R="$DATA/share/recent"
+mkdir -p "$R/newdir" "$R/.dot" || exit 1
+echo older >"$R/older.txt"; echo newer >"$R/newer.txt"; echo x >"$R/.hidden.txt"; echo x >"$R/.dot/in.txt"
+ln -s newer.txt "$R/link.txt"
+python3 -I -c '
+import os, sys, time
+t = time.time() + 86400
+for p, ahead in zip(sys.argv[1::2], sys.argv[2::2]):
+    os.utime(p, (t + int(ahead), t + int(ahead)), follow_symlinks=False)
+' "$R/older.txt" 100 "$R/newer.txt" 200 "$R/.hidden.txt" 900 "$R/.dot/in.txt" 900 "$R/newdir" 900 "$R/link.txt" 900 "$N/fish.txt" 50 || fail 'setting the recent files times'
+expect_status GET /_recent 200
+expect_header /_recent 'Cache-Control: no-store'
+expect_body /_recent '<title>Recent</title>'
+expect_body /_recent '<h1>Recent</h1>'
+expect_body /_recent "$vp"
+expect_body /_recent 'Logout'
+expect_search_count /_recent 50
+got=$(search_hrefs /_recent | head -n 3 | tr '\n' ' ')
+if [ "$got" = '/share/recent/newer.txt /share/recent/older.txt /My%20Stuff/notes/fish.txt ' ]; then ok "GET /_recent: newest first ($got)"; else fail "GET /_recent: the first three are $got"; fi
+expect_no_search /_recent '.hidden' '.dot' 'link.txt' 'newdir' 'link-to-passwd'
+got=$(search_hrefs /_recent | grep -c '/$')
+if [ "$got" = 0 ]; then ok 'GET /_recent: no folder'; else fail "GET /_recent: $got folders"; fi
+rm -rf "$R" "$N"
 
 # The player's helpers on the demo mkv: what is in it (two audio tracks, the E-AC3 one the
 # default, two text subtitle tracks), its subtitles as WebVTT, and the file repackaged with its
@@ -828,6 +909,7 @@ helper_down() { # PATH: an error status (5xx), within 5 seconds
 }
 helper_down '/_size?p=/movies/'
 helper_down '/_search?q=Buck'
+helper_down '/_recent'
 helper_down '/_space?p=/share/'
 helper_down '/_zip?p=/movies/'
 helper_down "/_probe?f=$MKV"

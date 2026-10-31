@@ -36,7 +36,8 @@ const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexO
 // writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
 let settings = { mounts: {}, scp: null, scp_root: '/data' };
 const mountOf = p => p.split('/')[1] || '', writable = p => { const m = mountOf(p); return m !== '' && settings.mounts[m] === 'rw' && p.replace(/\/$/, '') !== '/' + m; };
-const searching = location.pathname === '/_search';
+// (The search's results and the recent files: a list of files from anywhere, not a folder.)
+const recent = location.pathname === '/_recent', searching = recent || location.pathname === '/_search';
 let here = '/'; try { here = decodeURIComponent(location.pathname); } catch (e) {}
 fetch('/_space?p=' + encodeURIComponent(here), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { document.getElementById('d').textContent = t.trim(); });
 fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(s => {
@@ -102,9 +103,10 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
   row.size = bytes(info.trim().split(/\s+/).pop() || '-');
   rows.push(row);
 });
-// Above it: the search (a folder: this list as you type; Enter or Search: the search page), sort, pages of 100.
+// Above it: the search (a folder: this list as you type; Enter or Search: the search page), the
+// recent files (/_recent: the 50 last modified, everywhere), sort, pages of 100.
 const PAGE = 100, bar = document.createElement('pre');
-bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
+bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + (recent ? '' : '<a href="/_recent">Recent</a> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
 if (list) list.before(bar);
 const q = document.getElementById('q');
 let page = 0, shown = rows, key = '', dir = 1;
@@ -116,7 +118,7 @@ function show() {
   rows.forEach(r => { r.style.display = 'none'; });
   shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.style.display = ''; });
   const max = list.dataset.max ? +list.dataset.max : 0;
-  document.getElementById('n').textContent = '(' + shown.length + (searching ? ' found' + (rows.length >= max ? ', the first ' + max : '') : f ? ' matching' : ' items') + ')';
+  document.getElementById('n').textContent = '(' + shown.length + (recent ? ' recent' : searching ? ' found' + (rows.length >= max ? ', the first ' + max : '') : f ? ' matching' : ' items') + ')';
   document.getElementById('pg').textContent = 'page ' + (page + 1) + '/' + pages;
   measure(shown.slice(page * PAGE, page * PAGE + PAGE));
 }
