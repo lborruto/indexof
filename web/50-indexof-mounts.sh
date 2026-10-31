@@ -69,8 +69,10 @@ for path in /data/* /data/.*; do
   if [ -z "$reason" ] && [ -L "$path" ]; then reason='it is a symbolic link'; fi
   if [ -z "$reason" ] && [ ! -d "$path" ]; then reason='it is not a folder'; fi
   if [ -n "$reason" ]; then echo "indexof: refused mount /data/$name: $reason" >&2; continue; fi
-  # Writable when a hidden .uploads folder (where uploads arrive, on the same disk) can be made.
-  if [ -w "$path" ] && mkdir -p "$path/.uploads" 2>/dev/null && [ -w "$path/.uploads" ]; then mode=rw; else mode=ro; fi
+  # Writable when a hidden .uploads folder (where uploads arrive, on the same disk) can be made
+  # and a file written in it, tried for real: on some Docker hosts (Desktop's shared folders) a
+  # read-only mount still passes -w, and mkdir -p of a folder already there succeeds.
+  if mkdir -p "$path/.uploads" 2>/dev/null && touch "$path/.uploads/.probe" 2>/dev/null; then mode=rw; rm -f "$path/.uploads/.probe"; else mode=ro; fi
   if [ "$mode" = rw ]; then echo "indexof: /data/$name: writable" >&2; else echo "indexof: /data/$name: read-only" >&2; fi
   mounts="$mounts$mode $name$nl"
 done
