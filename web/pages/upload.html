@@ -121,6 +121,7 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
 // Above it: the search (a folder: this list as you type; Enter or Search: the search page), the
 // recent files (/_recent: the 50 last modified, everywhere), sort, pages of 100.
 const PAGE = 100, bar = document.createElement('pre');
+bar.style.whiteSpace = 'pre-wrap'; // (wraps on a narrow window, like the upload line)
 bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + (recent ? '' : '<a href="/_recent">Recent</a> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
 if (list) list.before(bar);
 const q = document.getElementById('q');

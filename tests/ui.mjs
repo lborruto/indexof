@@ -187,8 +187,8 @@ check(taps && taps.one, `1400 px screen: /${rw}/: a line of the listing on one l
 // (A smaller computer screen: the upload line wraps, the page never scrolls sideways.)
 await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false }, sessionId);
 await visit(`/${encodeURIComponent(rw)}/`);
-const wide = await ev(`[document.documentElement.scrollWidth, document.documentElement.clientWidth]`);
-check(wide && wide[0] <= wide[1], `1024 px screen: /${rw}/: no sideways scroll (${wide && wide.join(' wide in ')})`);
+const wide = await ev(`(() => { const w = innerWidth, over = [...document.querySelectorAll('body *')].filter(e => e.getBoundingClientRect().right > w + 1).map(e => e.tagName + (e.id ? '#' + e.id : '') + ' ' + (e.textContent || '').trim().slice(0, 30)); return [document.documentElement.scrollWidth, document.documentElement.clientWidth, over.slice(0, 3).join(' | ')]; })()`);
+check(wide && wide[0] <= wide[1], `1024 px screen: /${rw}/: no sideways scroll (${wide && wide[0]} wide in ${wide && wide[1]}${wide && wide[2] ? ', over: ' + wide[2] : ''})`);
 await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 await dav('DELETE', t);
 ws.close();
