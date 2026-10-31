@@ -14,6 +14,9 @@
 #   share/     (meant to be mounted writable) notes.txt, link-to-passwd -> /etc/passwd, a folder
 #              whose name ends with a line break holding etc/passwd (dummy text), files named
 #              -TT=x, * and 100% done.txt, and many/ with 1,500 empty files
+#   documents/ (meant to be mounted writable; the README's listing screenshot) one file of each
+#              main kind: a video, a song, a picture, a GIF, a PDF, notes, a zip, a disk image
+#              (a kind with no preview) and a folder of photos
 # ffmpeg runs in the helper image (indexof-helper:test built by the integration test, or the
 # published ghcr.io/lborruto/indexof-helper:main, or INDEXOF_HELPER_IMAGE) as the invoking user
 # with the folder bind-mounted, so nothing needs installing; without a helper image it uses the
@@ -51,7 +54,7 @@ ff() {
 # sees nothing else), removed at the end.
 scratch=.make-demo
 trap 'rm -rf "$dir/$scratch"' EXIT
-mkdir -p "$scratch" 'movies/Big Buck Test (2024)' 'movies/Amélie (2001)' music pictures share/many
+mkdir -p "$scratch" 'movies/Big Buck Test (2024)' 'movies/Amélie (2001)' music pictures share/many 'documents/Holiday photos'
 cat >"$scratch/fre.srt" <<'EOF'
 1
 00:00:01,000 --> 00:00:04,000
@@ -151,6 +154,64 @@ echo 'Not a real passwd file: a folder whose name ends with a line break, holdin
 echo 'A name with a percent sign.' >'share/100% done.txt'
 awk 'BEGIN { for (i = 1; i <= 1500; i++) printf "share/many/file-%04d.txt\n", i }' | xargs touch
 
+# documents: one of each main kind, for the listing's links ([download] [raw] [vlc], the name
+# opening the viewer, the browser's PDF reader, or downloading).
+ff -i 'movies/Short (2023).mp4' -c copy 'documents/Holiday clip.mkv'
+cp -f 'music/Demo Song.mp3' 'documents/Song.mp3'
+cp -f 'pictures/Gradient (2024).jpg' 'documents/Sunset.jpg'
+cp -f 'pictures/Test Pattern.png' 'documents/Holiday photos/Beach.png'
+ff -f lavfi -i testsrc2=size=160x90:rate=10 -t 2 'documents/Spinner.gif'
+cat >'documents/Notes.txt' <<'EOF'
+Demo data made by tests/make-demo.sh: nothing here is real.
+Shopping: bread, coffee, batteries.
+EOF
+# (A one-page PDF, written as it is: the offsets in its xref table count these exact bytes.)
+cat >'documents/Report.pdf' <<'EOF'
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 50 >>
+stream
+BT /F1 24 Tf 72 760 Td (indexof demo: a PDF) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000341 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+411
+%%EOF
+EOF
+# (The notes and the photos zipped, by the helper image's zip or this machine's; with neither, an
+# empty zip: its end-of-directory record alone, 22 bytes.)
+rm -f documents/Archive.zip
+if [ -n "$image" ]; then
+  docker run --rm --network none --user "$uid:$gid" -v "$dir:/demo" -w /demo/documents --entrypoint zip "$image" -q -r Archive.zip Notes.txt 'Holiday photos'
+elif command -v zip >/dev/null 2>&1; then
+  (cd documents && zip -q -r Archive.zip Notes.txt 'Holiday photos')
+else
+  printf 'PK\005\006\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000' >documents/Archive.zip
+fi
+dd if=/dev/zero of='documents/Installer.iso' bs=1024 count=2048 2>/dev/null
+
 rm -rf "$scratch"
 many=$(find share/many -type f | wc -l | tr -d ' ')
-echo "make-demo: $dir: movies (4), music (2), pictures (2), share (5 files, 1 symbolic link, many/ with $many files); ffmpeg from ${image:-this machine}"
+echo "make-demo: $dir: movies (4), music (2), pictures (2), share (5 files, 1 symbolic link, many/ with $many files), documents (8 files, 1 folder); ffmpeg from ${image:-this machine}"
