@@ -52,6 +52,13 @@ echo 'hidden' >"$DATA/_search/secret.txt"
 echo 'hidden' >"$DATA/.hidden/secret.txt"
 : >"$DATA/share/pat/*"; : >"$DATA/share/pat/[ab].txt"; : >"$DATA/share/pat/a.txt"; : >"$DATA/share/pat/b.txt"
 printf '1\n00:00:01,000 --> 00:00:02,000\nA subtitle file.\n' >"$DATA/My Stuff/subs/Big Buck Test (2024).srt"
+# The player's text view (tests/ui-viewer.mjs): plain text, a page (shown as its source), an old
+# .nfo in Windows-1252 (é as the one byte E9, not UTF-8) and a log of more than 1 MiB.
+mkdir -p "$DATA/My Stuff/text" || exit 1
+printf 'Plain text for the viewer.\n' >"$DATA/My Stuff/text/readme.txt"
+printf '<html><body><b>shown as source</b></body></html>\n' >"$DATA/My Stuff/text/page.html"
+printf 'Caf\351 cr\350me\n' >"$DATA/My Stuff/text/old.nfo"
+awk 'BEGIN { for (i = 1; i <= 30000; i++) printf "line %05d of a log longer than one mebibyte\n", i }' >"$DATA/My Stuff/text/big.log"
 ln -s /nowhere "$DATA/dangling"
 echo 'x' >"$DATA/file.txt"
 head -c 30000000 /dev/zero >"$TMP/big.bin"
@@ -867,9 +874,10 @@ if [ -n "$chrome" ]; then
   chrome_pid=$!
   i=0; until curl -s http://127.0.0.1:"$CDP_PORT"/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
   INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui-viewer.mjs" "$BASE" 'My Stuff/text' || { kill "$chrome_pid" 2>/dev/null; fail 'the viewer (tests/ui-viewer.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
-  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs)'
+  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs, tests/ui-viewer.mjs)'
 fi
 
 echo 'integration: all checks passed'
