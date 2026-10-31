@@ -17,7 +17,9 @@ fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).cat
   if (s && s.mounts) settings = s;
   const w = document.getElementById('w');
   if (searching) w.remove();
-  else if (!writable(here)) { w.textContent = 'read-only folder'; w.hidden = false; }
+  // (Uploads and new folders: any folder of a writable mount, its top level included; only
+  // renaming, moving and deleting spare the mounted folder itself.)
+  else if (settings.mounts[mountOf(here)] !== 'rw') { w.textContent = 'read-only folder'; w.hidden = false; }
   else { w.hidden = false; scpLine(); }
   actions();
 });

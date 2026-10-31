@@ -7,6 +7,22 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-31
+
+### Fixed
+
+- The upload line (Upload, New folder, the scp line) was hidden at the top of a writable folder,
+  which said "read-only folder" instead; its subfolders were fine.
+
+### Added
+
+- A browser test (`tests/ui.mjs`, run by the integration test when Chrome is there) of what the
+  page shows: the upload line, "read-only folder", [rename] and [delete] where they belong.
+
+### Changed
+
+- The README presents indexof as what it is first: a file server for the home, media second.
+
 ## [1.0.0] - 2026-10-31
 
 The first release: the file page of a private homelab, turned into a project anyone can run.
@@ -75,5 +91,6 @@ history.
 
 [Unreleased]: https://github.com/lborruto/indexof/commits/main
 
-[Unreleased]: https://github.com/lborruto/indexof/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/lborruto/indexof/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lborruto/indexof/releases/tag/v1.0.0

@@ -22,6 +22,7 @@
 //               shows it, starting with the folder's name (spaces and symbols as they are).
 //   INDEXOF_PASSWORD  the stack's password (the script logs in by setting the session cookie);
 //   CDP_PORT          Chrome's debugging port (9222);
+//   LISTING           the folder for listing.png (/ for the home page; default: the video's folder);
 //   SETTLE            milliseconds to wait after a page has loaded, for the folder sizes and
 //                     the player's track list to fill in (3000);
 //   SCALE             device pixels per CSS pixel: 2 for a crisper picture (1).
@@ -106,7 +107,8 @@ try {
   // Logged in, as login.html does it: the password in the session cookie (30 days, SameSite=Strict).
   await cdp.send('Network.setCookie', { name: 'session', value: encodeURIComponent(password), url: base, path: '/', sameSite: 'Strict' }, sessionId);
   await mkdir(outDir, { recursive: true });
-  const folder = video.slice(0, video.indexOf('/', 1) + 1); // the first folder of the video's path
+  // The listing: LISTING (a folder's path, / for the home page) or the video's first folder.
+  const folder = process.env.LISTING || video.slice(0, video.indexOf('/', 1) + 1);
   await shoot(cdp, sessionId, base + folder.split('/').map(encodeURIComponent).join('/'), path.join(outDir, 'listing.png'), false);
   await shoot(cdp, sessionId, `${base}/_play?f=${encodeURIComponent(video)}`, path.join(outDir, 'player.png'), true);
 } finally {
