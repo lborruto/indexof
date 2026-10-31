@@ -103,7 +103,7 @@ x-logging: &logging
 
 services:
   indexof:
-    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.2.0) for a setup that changes only when you say so
+    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.3.0) for a setup that changes only when you say so
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}" # the owner of the folders below (id -u, id -g)
     environment:
@@ -280,7 +280,7 @@ docker compose pull && docker compose up -d
 ```
 
 What changed is in [CHANGELOG.md](CHANGELOG.md). With `:latest`, that is what you get at the
-next pull; pin a version (`ghcr.io/lborruto/indexof:1.2.0` and the same for the helper) for a
+next pull; pin a version (`ghcr.io/lborruto/indexof:1.3.0` and the same for the helper) for a
 setup that only changes when you say so. There is no data of indexof's own to migrate: your
 files stay yours, where they are.
 
