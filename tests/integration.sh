@@ -864,22 +864,7 @@ if [ -n "$chrome" ]; then
   "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
   chrome_pid=$!
   i=0; until curl -s http://127.0.0.1:9333/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
-  INDEXOF_PASSWORD=$PASSWORD CDP_PORT=9333 node "$(dirname "$0")/ui.mjs" "$BASE" share movies || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
-  kill "$chrome_pid" 2>/dev/null || true
-else
-  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs)'
-fi
-
-# What the page shows, in a real browser when one is here (GitHub's runners have Chrome).
-chrome=
-for c in google-chrome google-chrome-stable chromium chromium-browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
-  if command -v "$c" >/dev/null 2>&1 || [ -x "$c" ]; then chrome=$c; break; fi
-done
-if [ -n "$chrome" ]; then
-  "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
-  chrome_pid=$!
-  i=0; until curl -s http://127.0.0.1:9333/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
-  INDEXOF_PASSWORD=$PASSWORD CDP_PORT=9333 node "$(dirname "$0")/ui.mjs" "$BASE" share movies || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT=9333 node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
   echo 'skip  what the page shows: no Chrome here (tests/ui.mjs)'

@@ -4,9 +4,11 @@
 // folder itself. Drives a Chrome already running with --remote-debugging-port, over the DevTools
 // protocol (Node 24, nothing to install).
 //
-//   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui.mjs http://127.0.0.1:18099 share movies
-//   argument 1  the page's address; 2  a writable folder; 3  a read-only folder.
-const [base, rw, ro] = process.argv.slice(2);
+//   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui.mjs http://127.0.0.1:18099 share movies many
+//   argument 1  the page's address; 2  a writable folder; 3  a read-only folder; 4  (optional) a
+//   subfolder of the writable one, plain-named.
+const [base, rw, ro, sub] = process.argv.slice(2);
+process.on('unhandledRejection', e => { console.log('FAIL  page: ' + (e && e.message || e)); process.exit(1); });
 const password = process.env.INDEXOF_PASSWORD, port = process.env.CDP_PORT || '9222';
 if (!base || !rw || !ro || !password) { console.error('usage: INDEXOF_PASSWORD=… node tests/ui.mjs BASE RW_FOLDER RO_FOLDER'); process.exit(2); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -31,8 +33,7 @@ const check = (cond, what) => { console.log((cond ? 'ok    ' : 'FAIL  ') + 'page
 const top = await show(`/${rw}/`);
 check(top.upload, `/${rw}/ (the top of a writable folder) shows the upload line`);
 check(top.lines.some(l => l.includes('[rename]')), `/${rw}/ offers [rename] on its lines`);
-const sub = (top.lines.find(l => /\/\s/.test(l) && !l.startsWith('../')) || '').trim().split(/\s+/)[0];
-if (sub) { const s = await show(`/${rw}/${sub}`); check(s.upload, `/${rw}/${sub} (a subfolder) shows the upload line`); }
+if (sub) { const s = await show(`/${rw}/${sub}/`); check(s.upload, `/${rw}/${sub}/ (a subfolder) shows the upload line`); }
 const readOnly = await show(`/${ro}/`);
 check(!readOnly.upload && readOnly.w === 'read-only folder', `/${ro}/ (read-only) says "read-only folder", no upload`);
 check(!readOnly.lines.some(l => l.includes('[rename]') || l.includes('[delete]')), `/${ro}/ offers no [rename] or [delete]`);
