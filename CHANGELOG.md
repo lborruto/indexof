@@ -7,6 +7,20 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-31
+
+### Added
+
+- `[link]` on every line of a listing (and of the search and the recent files): copies the
+  file's or the folder's whole address, to paste in a message. Whoever opens it logs in first:
+  it is not a share link.
+
+### Changed
+
+- A zip over 20 GiB is asked first ("Zip 512G? It downloads as it is made: nothing is stored on
+  the server."), a folder's `[zip]` as `[zip selected]`; a folder whose size is still being
+  measured after 3 seconds is asked about too. Smaller zips start at once, as before.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added
@@ -159,7 +173,8 @@ history.
   over the whole history, Trivy on both images and the Dockerfiles; Dependabot for the base
   images and the actions.
 
-[Unreleased]: https://github.com/lborruto/indexof/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/lborruto/indexof/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lborruto/indexof/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lborruto/indexof/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lborruto/indexof/compare/v1.0.1...v1.1.0

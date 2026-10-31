@@ -46,8 +46,6 @@
   in VLC with one click (`[vlc]`).
 - **On the phone too.** The same pages, fitted to its screen: each file in two lines, links big
   enough to tap.
-
-  <img src="docs/screenshots/phone.webp" alt="The same documents folder on a phone: each file's name with its date and size, its links on the line under it" width="260">
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
@@ -103,7 +101,7 @@ x-logging: &logging
 
 services:
   indexof:
-    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.3.0) for a setup that changes only when you say so
+    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.4.0) for a setup that changes only when you say so
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}" # the owner of the folders below (id -u, id -g)
     environment:
@@ -280,7 +278,7 @@ docker compose pull && docker compose up -d
 ```
 
 What changed is in [CHANGELOG.md](CHANGELOG.md). With `:latest`, that is what you get at the
-next pull; pin a version (`ghcr.io/lborruto/indexof:1.3.0` and the same for the helper) for a
+next pull; pin a version (`ghcr.io/lborruto/indexof:1.4.0` and the same for the helper) for a
 setup that only changes when you say so. There is no data of indexof's own to migrate: your
 files stay yours, where they are.
 
