@@ -18,7 +18,7 @@
 }
 </style>
 <pre>
-<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button>  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
+<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button> <button onclick="document.getElementById('fd').click()">Upload folder</button><input type="file" id="fd" webkitdirectory hidden onchange="upFolder()">  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
 </pre><hr>
 <script>
 const msg = t => { document.getElementById('s').textContent = t ? '\n' + t : ''; }; // (a blank line above it)
@@ -275,11 +275,14 @@ async function moveSelected() {
   });
 }
 // Uploads: a line for each file (size, how far along, time left, [cancel]), three at a time, in
-// one queue however many times Upload is pressed or files are dropped on the page.
+// one queue however many times Upload is pressed or files are dropped on the page. A file's place
+// under this folder: its name, or its path when a whole folder goes up (a/b/c.txt).
+const relOf = f => f.rel || f.webkitRelativePath || f.name;
 function time(s) { s = Math.round(s); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm'; }
 function human(n) { const u = ['', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + u[i]; }
 const jobs = [];
-window.addEventListener('beforeunload', e => { if (jobs.some(j => !j.over)) { e.preventDefault(); e.returnValue = ''; } });
+let preparing = 0; // (folders being read or made: their files are not in the queue yet)
+window.addEventListener('beforeunload', e => { if (preparing || jobs.some(j => !j.over)) { e.preventDefault(); e.returnValue = ''; } });
 function total() {
   const n = k => jobs.filter(j => j.state === k).length;
   document.getElementById('ut').textContent = n('sending') + ' uploading, ' + n('queued') + ' waiting, ' + n('done') + ' done' + (n('failed') ? ', ' + n('failed') + ' failed' : '') + (n('cancelled') ? ', ' + n('cancelled') + ' cancelled' : '');
@@ -289,13 +292,13 @@ function end(j, state, text) {
   j.over = true; j.state = state; j.st.textContent = text; j.cx.remove();
   total(); next();
   // All finished and something arrived: show it in the listing.
-  if (jobs.every(x => x.over) && jobs.some(x => x.state === 'done')) setTimeout(() => { if (jobs.every(x => x.over)) location.reload(); }, 1500);
+  if (jobs.every(x => x.over) && jobs.some(x => x.state === 'done')) setTimeout(() => { if (!preparing && jobs.every(x => x.over)) location.reload(); }, 1500);
 }
 function cancel(j) { if (j.over) return; if (j.xhr) j.xhr.abort(); else end(j, 'cancelled', 'cancelled'); }
 function send(j) {
   const x = j.xhr = new XMLHttpRequest(), t0 = Date.now();
   j.state = 'sending'; j.st.textContent = '0%'; total();
-  x.open('PUT', j.dest + encodeURIComponent(j.file.name));
+  x.open('PUT', j.dest + enc(relOf(j.file)));
   x.upload.onprogress = e => {
     if (!e.lengthComputable || j.over) return;
     const s = (Date.now() - t0) / 1000, left = e.loaded ? s * (e.total - e.loaded) / e.loaded : 0;
@@ -328,8 +331,8 @@ function upload(files) {
     document.getElementById('ua').onclick = e => { e.preventDefault(); jobs.forEach(cancel); };
   }
   files.forEach(file => {
-    const j = { file, dest: location.pathname, state: 'queued' }, name = document.createElement('span');
-    name.textContent = (file.name.length > 50 ? file.name.slice(0, 47) + '..>' : file.name).padEnd(51) + human(file.size).padStart(8) + '  ';
+    const j = { file, dest: location.pathname, state: 'queued' }, name = document.createElement('span'), n = relOf(file);
+    name.textContent = (n.length > 50 ? n.slice(0, 47) + '..>' : n).padEnd(51) + human(file.size).padStart(8) + '  ';
     j.st = document.createElement('span'); j.st.textContent = 'queued';
     j.cx = document.createElement('a'); j.cx.href = '#'; j.cx.textContent = '[cancel]';
     j.cx.onclick = e => { e.preventDefault(); cancel(j); };
@@ -338,6 +341,51 @@ function upload(files) {
   });
   total(); next();
 }
+// A whole folder (picked with Upload folder, or dropped): its folders made first, parents before
+// their own (one there already is fine: 405), empty ones too, then its files through the queue.
+// Hidden names (a part starting with a dot) are left out and counted; a name the server would
+// refuse (a line break, a control character) is left out and named; so is a folder not made.
+function upFolder() {
+  const input = document.getElementById('fd'), files = [...input.files];
+  input.value = '';
+  if (files.length) upTree(files, [], 0);
+}
+async function upTree(files, dirs, hidden) {
+  const bad = [], keep = [], made = new Set();
+  const ok = p => { const parts = p.split('/'); if (parts.some(x => x.startsWith('.'))) { hidden++; return false; } if (/[\x00-\x1f\x7f]/.test(p)) { bad.push(p); return false; } return true; };
+  dirs.filter(ok).forEach(d => made.add(d));
+  files.forEach(f => { const p = relOf(f); if (!ok(p)) return; keep.push(f); p.split('/').slice(0, -1).forEach((x, i, a) => made.add(a.slice(0, i + 1).join('/'))); });
+  const n = x => x.toLocaleString('en');
+  if (keep.length > 1000 && !confirm('Upload ' + n(keep.length) + ' files in ' + n(made.size) + ' folders?')) return;
+  const say = failed => msg([hidden ? hidden + ' hidden left out (names starting with a dot)' : '', bad.length ? 'refused (a line break or control character): ' + bad.join(', ') : '', failed.length ? 'folders not made: ' + failed.join(', ') : ''].filter(x => x).join('; '));
+  say([]);
+  const failed = [];
+  preparing++;
+  for (const d of [...made].sort((a, b) => a.split('/').length - b.split('/').length)) {
+    const r = await fetch(location.pathname + enc(d) + '/', { method: 'MKCOL' }).catch(() => null);
+    if (!r || (!r.ok && r.status !== 405)) failed.push(d + ' (' + (r ? r.status : 'network error') + ')');
+  }
+  preparing--;
+  say(failed);
+  if (keep.length) upload(keep); else if (made.size > failed.length && jobs.every(x => x.over)) location.reload();
+}
+// A dropped folder, read whole: its files (each with its path, a/b/c.txt) and its folders. A
+// reader hands its entries a hundred or so at a time: read until it hands none. Hidden ones are
+// counted and not opened.
+async function walk(entries) {
+  const files = [], dirs = [];
+  let hidden = 0;
+  const read = r => new Promise((ok, ko) => r.readEntries(ok, ko)), file = e => new Promise((ok, ko) => e.file(ok, ko));
+  const go = async (entry, path) => {
+    if (entry.name.startsWith('.')) { hidden++; return; }
+    if (entry.isFile) { const f = await file(entry); f.rel = path; files.push(f); return; }
+    dirs.push(path);
+    const r = entry.createReader();
+    for (let got; (got = await read(r)).length;) for (const e of got) await go(e, path + '/' + e.name);
+  };
+  for (const e of entries) await go(e, e.name);
+  return { files, dirs, hidden };
+}
 async function mk() {
   const n = prompt('Folder name');
   if (!n) return;
@@ -345,9 +393,9 @@ async function mk() {
   if (r.ok) location.reload(); else msg('failed (' + r.status + ')');
 }
 // Drag and drop: files dropped on the page go up as if picked, in a folder where the upload line
-// shows; a folder is left out (the browser hands over no content for one). Anywhere else a drop
-// does nothing, rather than the browser leaving the page to open the file. Anything else dragged
-// (text into the search box, say) is left to the browser.
+// shows, and a folder whole (walk(), upTree()). Anywhere else a drop does nothing, rather than the
+// browser leaving the page to open the file. Anything else dragged (text into the search box,
+// say) is left to the browser.
 const droppable = () => !searching && settings.mounts[mountOf(here)] === 'rw';
 let dragOff = 0;
 const dragsFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -367,16 +415,40 @@ document.addEventListener('drop', e => {
   e.preventDefault();
   clearTimeout(dragOff); document.body.style.outline = '';
   if (!droppable() || !e.dataTransfer) return;
-  const files = [];
-  let folders = 0;
-  // (The entries are read now: the list is emptied once the event is over.)
+  const files = [], folders = [];
+  // (The entries are taken now: the list is emptied once the event is over.)
   const items = e.dataTransfer.items ? [...e.dataTransfer.items].filter(i => i.kind === 'file') : null;
   if (items) items.forEach(i => {
-    const entry = i.webkitGetAsEntry && i.webkitGetAsEntry(), f = i.getAsFile();
-    if (!f || (entry && entry.isDirectory)) folders++; else files.push(f);
+    const entry = i.webkitGetAsEntry && i.webkitGetAsEntry(), f = entry && entry.isDirectory ? null : i.getAsFile();
+    if (entry && entry.isDirectory) folders.push(entry); else if (f) files.push(f);
   });
   else files.push(...e.dataTransfer.files);
   if (files.length) upload(files);
-  if (folders) msg('folders are not uploaded: zip them or use scp');
+  if (!folders.length) return;
+  preparing++;
+  walk(folders).finally(() => preparing--).then(t => upTree(t.files, t.dirs, t.hidden), () => msg('the folder could not be read'));
+});
+// Pasted (a screenshot, say): the files the clipboard holds go up as if dropped. A picture with
+// no name of its own (image.png) gets the time it was pasted: Pasted 2026-10-31 18.42.05.png,
+// with (2), (3)... after a name already here. Pasted while typing (the search box), or text, it
+// is left to the browser.
+const typing = el => el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(checkbox|radio|file|button|submit|reset|range|color|image|hidden)$/.test(el.type)));
+document.addEventListener('paste', e => {
+  if (!droppable() || !e.clipboardData || typing(document.activeElement)) return;
+  let files = [...e.clipboardData.files];
+  if (!files.length && e.clipboardData.items) files = [...e.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(f => f);
+  if (!files.length) return;
+  e.preventDefault();
+  const taken = new Set(rows.map(r => r.path.replace(/\/$/, '').split('/').pop()).concat(jobs.map(j => relOf(j.file))));
+  const d = new Date(), p = x => String(x).padStart(2, '0');
+  const at = 'Pasted ' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + '.' + p(d.getMinutes()) + '.' + p(d.getSeconds());
+  upload(files.map(f => {
+    if (f.name && !/^image\.\w+$/i.test(f.name)) return f;
+    const ext = (f.name.match(/\.\w+$/) || [f.type.startsWith('image/') ? '.' + f.type.slice(6).replace('jpeg', 'jpg').replace(/\W.*/, '') : ''])[0];
+    let name = at + ext;
+    for (let i = 2; taken.has(name); i++) name = at + ' (' + i + ')' + ext;
+    taken.add(name);
+    return new File([f], name, { type: f.type, lastModified: f.lastModified });
+  }));
 });
 </script>
