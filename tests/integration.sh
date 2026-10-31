@@ -142,9 +142,10 @@ if [ -f "$DATA/share/a$nl/etc/passwd" ]; then ok 'demo data: share/a<line break>
 many=$(find "$DATA/share/many" -type f | wc -l | tr -d ' ')
 if [ "$many" = 1500 ]; then ok 'demo data: share/many holds 1,500 files'; else fail "demo data: share/many holds $many files, wanted 1500"; fi
 expect_no_file "$DATA/.make-demo" 'demo data: scratch folder removed'
-# ffprobe, from the helper image, on a file under the temporary folder: media_of writes its
-# streams and format to $TMP/probe.txt; video_packets prints the video track's bytes and packets.
-ffprobe_t() { docker run --rm --network none -v "$TMP:/x:ro" --entrypoint ffprobe indexof-helper:test -v error "$@"; }
+# ffprobe, from the helper image (as the current user: the temporary folder is theirs alone), on
+# a file under the temporary folder: media_of writes its streams and format to $TMP/probe.txt;
+# video_packets prints the video track's bytes and packets.
+ffprobe_t() { docker run --rm --network none --user "$(id -u):$(id -g)" -v "$TMP:/x:ro" --entrypoint ffprobe indexof-helper:test -v error "$@"; }
 media_of() { ffprobe_t -show_entries format=format_name:stream=codec_type,codec_name,channels -of flat "/x/${1#"$TMP"/}" >"$TMP/probe.txt" 2>&1; }
 expect_media() { # FILE WHAT NEEDLE...: each NEEDLE in ffprobe's view of FILE
   f=$1; what=$2; shift 2
