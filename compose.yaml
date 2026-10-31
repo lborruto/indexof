@@ -1,0 +1,52 @@
+# indexof: nginx's "Index of /" for the folders you mount under /data, and its helper (sizes,
+# search, zips, the player's tracks, VLC links) on an internal network. Copy this file and
+# .env.example (as .env, with the two secrets filled in) into a folder of their own, mount your
+# folders below, then: docker compose up -d. The page is on http://127.0.0.1:8099 (INDEXOF_BIND
+# and INDEXOF_PORT in .env; .env.example explains every setting).
+#
+# A folder mounted read-only (:ro) is browse-only; a writable one takes uploads, new folders,
+# rename, move and delete. Mount each folder in both services (always :ro for the helper, which
+# only reads). The containers run as PUID:PGID (1000:1000 unless set): the user the folders
+# belong to.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "3"
+
+services:
+  indexof:
+    image: ghcr.io/lborruto/indexof:latest # (pin a version for a setup that only changes when you say so: ...:1.0.0)
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      INDEXOF_PASSWORD: "${INDEXOF_PASSWORD:?set INDEXOF_PASSWORD in .env (the page's password)}"
+      INDEXOF_LINK_SECRET: "${INDEXOF_LINK_SECRET:?set INDEXOF_LINK_SECRET in .env (32 characters or more: openssl rand -hex 32)}"
+      INDEXOF_SCP: "${INDEXOF_SCP:-}"
+      INDEXOF_SCP_ROOT: "${INDEXOF_SCP_ROOT:-}"
+    volumes:
+      - ./data/share:/data/share # writable: uploads, new folders, rename, move, delete
+      # - /srv/movies:/data/movies:ro # read-only: browse, play, download
+    ports:
+      - "${INDEXOF_BIND:-127.0.0.1}:${INDEXOF_PORT:-8099}:8080"
+    networks: [default, indexof]
+    depends_on: [indexof-helper]
+    logging: *logging
+
+  indexof-helper:
+    image: ghcr.io/lborruto/indexof-helper:latest # (the same version as the page's)
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      INDEXOF_LINK_SECRET: "${INDEXOF_LINK_SECRET:?set INDEXOF_LINK_SECRET in .env (32 characters or more: openssl rand -hex 32)}"
+    volumes:
+      - ./data/share:/data/share:ro
+      # - /srv/movies:/data/movies:ro
+    networks: [indexof]
+    logging: *logging
+
+networks:
+  # The helper is reached by the page only: this network has no way out, and nothing publishes it.
+  indexof:
+    internal: true

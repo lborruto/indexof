@@ -137,15 +137,15 @@ function vlcLink() {
     return location.origin + (p => p.split('/').map(x => encodeURIComponent(x).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())).join('/'))(f) + '?' + t;
   });
 }
-// vlc://: opens VLC itself, on a computer with the VLC Link helper (files/vlc-link/: it hands
-// VLC the http link inside, from this server only).
+// vlc://: opens VLC itself, on a computer with the VLC Link helper (vlc-link/ in the project: it
+// hands VLC the http link inside, from the addresses it was installed with only).
 $('ov').onclick = e => {
   e.preventDefault();
   vlcLink().then(url => {
     if (!url) return;
     v.pause();
     location.href = 'vlc://' + url.replace(/^http:\/\//, ''); // (without http: Chrome rewrites vlc://http://... as vlc://http//...)
-    msg('Opening VLC… (nothing happens? this computer needs the VLC Link helper, files/vlc-link/,\nor use "playlist")');
+    msg('Opening VLC… (nothing happens? this computer needs the VLC Link helper (vlc-link/ in the project),\nor use "playlist")');
   });
 };
 $('pl').onclick = e => {
