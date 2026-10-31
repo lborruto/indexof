@@ -1,8 +1,8 @@
 <h1 align="center">indexof</h1>
 
 <p align="center">
-  <strong>nginx's "Index of /" for the folders on your home server, with the few things it was missing. Self-hosted, no frills.</strong><br>
-  Log in, browse, search, upload, zip a folder, play a video in the browser or open it in VLC. Two small containers, two secrets, any folders you mount.
+  <strong>A plain file server for your home: nginx's "Index of /" with the few things it was missing. Self-hosted, no frills.</strong><br>
+  The household's shared drive, from any browser: browse, upload, download, search, zip, rename, organise. Videos and music play too. Two small containers, two secrets, any folders you mount.
 </p>
 
 <p align="center">
@@ -11,40 +11,35 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/listing.webp" alt="The listing of a movies folder: nginx's Index of /, with the filter and Search line above it, sizes and dates, and [play] [vlc] [zip] on each line" width="900">
+  <img src="docs/screenshots/listing.webp" alt="A Documents folder: nginx's Index of / with sizes and dates, [zip] [rename] [delete] on each line, the search and sort line above, and the upload line, free space and logout below" width="900">
 </p>
 
 ## What it does
 
-- **The listing you know.** It is nginx's own "Index of /", unchanged in look. Above it, a
-  live filter, a Search button (or Enter), sort by name, date or size, pages of 100, checkboxes
-  with "zip selected", the folders' sizes filled in as you look, and the free space.
-- **Search.** Text, folder, files or folders, kind, how many results at most. The results come
-  in the listing's own format, with date and size.
-- **Upload from the browser or the terminal.** Several files, three at a time, each with its %,
-  time left and `[cancel]`; `[cancel all]`; a warning before you leave mid-upload; a cancelled
-  upload leaves nothing behind. New folders, `[rename]` (or move) and `[delete]` in the folders
-  you mount writable. Prefer the terminal? Set `INDEXOF_SCP` and the page shows the `scp` line
-  for the folder you are in, ready to copy.
-- **Zips.** `[zip]` on any folder, or tick some lines and "zip selected". The archive is
-  streamed as it is made, nothing is written on the server; hidden files and symbolic links are
-  left out.
-- **A player that never converts.** `[play]` opens the file as it is: video, audio, pictures
-  (`[view]`). Pick the audio track and the subtitles from what is inside the file. When the
-  browser cannot play a file (Dolby or DTS sound, say), the player says so, and VLC is one click
-  away.
-- **Open in VLC.** `[vlc]` next to a video, "open in VLC" in the player: VLC on your computer
-  plays the file through a temporary link, so everything a browser cannot play still plays. A
-  playlist and "copy VLC link" for computers without the helper.
-- **Any folders, read-only or writable.** Mount what you like under `/data`. A folder mounted
-  `:ro` can be browsed, searched, zipped, played and downloaded, never changed; a writable one
-  takes uploads, new folders, rename, move and delete. Nothing else to configure.
+- **Your folders, from any browser.** Documents, photos, backups, the things you share at home:
+  mount any folders under `/data` and they are there, on the computer or the phone, with nothing
+  to install. It is nginx's own "Index of /", unchanged in look, with sizes and dates.
+- **Upload, download, organise.** Upload from the browser (several files, three at a time, each
+  with its %, time left and `[cancel]`), make folders, `[rename]` or move, `[delete]`, in the
+  folders you mount writable. Download any file with a click. Prefer the terminal? Set
+  `INDEXOF_SCP` and the page shows the `scp` line for the folder you are in, ready to copy.
+- **Find things.** A live filter on the folder you are in, and Search across all of them: text,
+  folder, files or folders, kind (documents, pictures, videos, archives…). Sort by name, date or
+  size; pages of 100; each folder's size filled in as you look; the disk's free space.
+- **Zip and take away.** `[zip]` on any folder, or tick some lines and "zip selected". The
+  archive is streamed as it is made, nothing is written on the server.
+- **Read-only where you want it.** A folder mounted `:ro` can be browsed, searched, downloaded
+  and zipped, never changed. A writable one takes uploads and changes. Nothing else to
+  configure.
+- **Videos, music and pictures too.** `[play]` and `[view]` open them in the browser as they
+  are, never converted, with the audio track and subtitles from inside the file. What the browser
+  cannot play opens in VLC with one click (`[vlc]`).
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
-  helper (busybox httpd, zip, ffmpeg) for sizes, search, zips and the player's tracks, on an
-  internal network only nginx can reach. `linux/amd64` and `linux/arm64`. No database, no
-  framework, no build step.
+  helper (busybox httpd, zip, ffmpeg) for sizes, search, zips and the player, on an internal
+  network only nginx can reach. `linux/amd64` and `linux/arm64`. No database, no framework, no
+  build step.
 
 ## Security
 
@@ -104,7 +99,7 @@ services:
       INDEXOF_SCP_ROOT: "${INDEXOF_SCP_ROOT:-}"
     volumes:
       - ./data/share:/data/share # writable: uploads, new folders, rename, move, delete
-      # - /srv/movies:/data/movies:ro # read-only: browse, search, zip, play, download
+      # - /srv/photos:/data/photos:ro # read-only: browse, search, zip, download
     ports:
       - "${INDEXOF_BIND:-127.0.0.1}:${INDEXOF_PORT:-8099}:8080"
     networks: [default, indexof]
@@ -120,7 +115,7 @@ services:
     volumes:
       # The same folders, always read-only: the helper only reads.
       - ./data/share:/data/share:ro
-      # - /srv/movies:/data/movies:ro
+      # - /srv/photos:/data/photos:ro
     networks: [indexof]
     logging: *logging
 
@@ -178,7 +173,7 @@ variables and `docker compose down`.
 ## Folders
 
 - **Anything under `/data`.** Each folder you mount becomes one entry on the home page, with its
-  name in the container (`/srv/movies:/data/movies:ro` shows as `movies`). Mount it in both
+  name in the container (`/srv/photos:/data/photos:ro` shows as `photos`). Mount it in both
   services: the page serves it, the helper (always `:ro`) measures, searches and zips it.
 - **`:ro` means browse-only.** nginx refuses every write on it, and the kernel would refuse
   anyway. Without `:ro`, the folder takes uploads, new folders, rename, move and delete, and

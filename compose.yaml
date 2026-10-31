@@ -27,7 +27,7 @@ services:
       INDEXOF_SCP_ROOT: "${INDEXOF_SCP_ROOT:-}"
     volumes:
       - ./data/share:/data/share # writable: uploads, new folders, rename, move, delete
-      # - /srv/movies:/data/movies:ro # read-only: browse, play, download
+      # - /srv/photos:/data/photos:ro # read-only: browse, search, zip, download
     ports:
       - "${INDEXOF_BIND:-127.0.0.1}:${INDEXOF_PORT:-8099}:8080"
     networks: [default, indexof]
@@ -42,7 +42,7 @@ services:
       INDEXOF_LINK_SECRET: "${INDEXOF_LINK_SECRET:?set INDEXOF_LINK_SECRET in .env (32 characters or more: openssl rand -hex 32)}"
     volumes:
       - ./data/share:/data/share:ro
-      # - /srv/movies:/data/movies:ro
+      # - /srv/photos:/data/photos:ro
     networks: [indexof]
     logging: *logging
 
