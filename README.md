@@ -21,12 +21,14 @@
   to install. It is nginx's own "Index of /", unchanged in look, with sizes and dates.
 - **Upload, download, organise.** Upload from the browser (several files, three at a time, each
   with its %, time left and `[cancel]`), make folders, `[rename]` or move, `[delete]`, in the
-  folders you mount writable; drop files on the page to upload them; tick lines to zip, move or
+  folders you mount writable; drop files or whole folders on the page, or paste a screenshot, to
+  upload them; tick lines to zip, move or
   delete them together. `[download]` on every file; `[raw]` opens it in the browser as the
   server sends it. Prefer the terminal? Set
   `INDEXOF_SCP` and the page shows the `scp` line for the folder you are in, ready to copy.
 - **Find things.** A live filter on the folder you are in, and Search across all of them: text,
-  folder, files or folders, kind (documents, pictures, videos, archives…). Sort by name, date or
+  folder, files or folders, kind (documents, pictures, videos, archives…), or the words inside
+  text files. **Recent** lists the 50 latest files of every folder. Sort by name, date or
   size; pages of 100; each folder's size filled in as you look; the disk's free space (on the
   home page too, once per disk).
 - **Zip and take away.** `[zip]` on any folder, or tick some lines and "zip selected". The
@@ -38,10 +40,14 @@
   they are, never converted, with the audio track and subtitles from inside the file. ← and →
   go through the folder, music and episodes play on into the next file, and a video starts again
   where you stopped. Notes, logs, subtitles and code are shown as text, a PDF opens in the
-  browser's reader, anything else (a zip, an ISO…) downloads. What the browser cannot play opens
+  browser's reader, anything else (a zip, an ISO…) downloads. A picture shows its size, when it
+  was taken and the camera; subtitle files next to a video (`.srt`, `.vtt`, `.ass`) are offered
+  with its own. What the browser cannot play opens
   in VLC with one click (`[vlc]`).
-- **On the phone too.** The same pages, fitted to its screen: each line wraps, links big enough
-  to tap.
+- **On the phone too.** The same pages, fitted to its screen: each file in two lines, links big
+  enough to tap.
+
+  <img src="docs/screenshots/phone.webp" alt="The same documents folder on a phone: each file's name with its date and size, its links on the line under it" width="260">
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
@@ -97,7 +103,7 @@ x-logging: &logging
 
 services:
   indexof:
-    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.2.0) for a setup that changes only when you say so
+    image: ghcr.io/lborruto/indexof:latest # pin a version (…:1.3.0) for a setup that changes only when you say so
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}" # the owner of the folders below (id -u, id -g)
     environment:
@@ -274,7 +280,7 @@ docker compose pull && docker compose up -d
 ```
 
 What changed is in [CHANGELOG.md](CHANGELOG.md). With `:latest`, that is what you get at the
-next pull; pin a version (`ghcr.io/lborruto/indexof:1.2.0` and the same for the helper) for a
+next pull; pin a version (`ghcr.io/lborruto/indexof:1.3.0` and the same for the helper) for a
 setup that only changes when you say so. There is no data of indexof's own to migrate: your
 files stay yours, where they are.
 

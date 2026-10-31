@@ -18,6 +18,7 @@
 <video id="v" controls autoplay style="max-width: 100%; max-height: 80vh; background: #000" hidden></video>
 <audio id="au" controls autoplay style="width: 100%" hidden></audio>
 <img id="im" style="max-width: 100%; max-height: 85vh" alt="" hidden>
+<pre id="pi" hidden></pre>
 <pre id="tx" style="white-space: pre-wrap" hidden></pre>
 <pre id="rs" hidden></pre>
 <pre id="c" hidden><a href="#" id="pp">pause</a>  <input type="range" id="sk" min="0" max="0" step="1" value="0" style="width: 50%; vertical-align: middle">  <span id="tm"></span></pre>
@@ -50,7 +51,7 @@ const SILENT = ['ac3', 'eac3', 'dts', 'truehd', 'mlp', 'pcm_bluray', 'pcm_dvd'];
 // with the line of controls above instead (a seek is a new one, from the keyframe at or before
 // the chosen time, which /_probe?k= gives, so the clock and the subtitles stay right).
 let info = null, mode = 'direct', off = 0, track = 0;
-if (kind === 'image') { $('im').hidden = false; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
+if (kind === 'image') { $('im').hidden = false; $('im').onload = details; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
 else if (kind === 'text') text();
 else {
   v.hidden = false; $('tracks').hidden = false; $('vl').hidden = false; $('sl').hidden = kind === 'audio';
@@ -113,8 +114,9 @@ const played = () => info.audio.find(a => SILENT.indexOf(a.codec) === -1) || inf
 const name = a => (a.lang + ' ' + a.title).trim() + ' (' + a.codec + (a.ch ? ', ' + ({ 1: 'mono', 2: 'stereo', 6: '5.1', 8: '7.1' }[a.ch] || a.ch + 'ch') : '') + ')';
 function say(a) { $('an').textContent = SILENT.indexOf(a.codec) !== -1 ? a.codec.toUpperCase() + ': no sound in this browser (open in VLC, below)' : ''; }
 
-// Subtitles: the text tracks inside the file, each fetched from /_sub (as WebVTT) when chosen
-// and kept, shown through one track of the player's, shifted by `off` in remux mode.
+// Subtitles: the text tracks inside the file, then the subtitle files next to it (sidecars,
+// below), each fetched from /_sub (as WebVTT) when chosen and kept, shown through one track of
+// the player's, shifted by `off` in remux mode.
 const subs = []; let sub = null, disp = null, seq = 0;
 function parse(t) { // WebVTT: [[start, end, text], ...]
   const out = [], secs = s => s.split(':').reduce((a, b) => a * 60 + parseFloat(b.replace(',', '.')), 0);
@@ -138,9 +140,9 @@ $('s').onchange = () => {
   const s = $('s').value === '' ? null : subs[+$('s').value], n = ++seq;
   sub = s;
   if (!s || s.cues) { cues(); return; }
-  note('loading subtitles… (the whole file is read for them: a few seconds on a big one)');
-  fetch('/_sub?' + q + '&s=' + s.n, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
-    s.cues = parse(t); note(s.cues.length ? '' : 'no subtitles in that track');
+  note(s.file ? 'loading subtitles…' : 'loading subtitles… (the whole file is read for them: a few seconds on a big one)');
+  fetch(s.file ? '/_sub?f=' + encodeURIComponent(s.file) + '&s=file' : '/_sub?' + q + '&s=' + s.n, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
+    s.cues = parse(t); note(s.cues.length ? '' : 'no subtitles in that ' + (s.file ? 'file' : 'track'));
     if (seq === n) cues();
   });
 };
@@ -203,7 +205,7 @@ if (media) fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text(
       o.value = subs.length; subs.push(s);
       o.textContent = (s.lang + ' ' + s.title).trim() + (s.image ? ' (image subtitles, cannot be shown)' : ' (' + s.codec + ')');
       o.disabled = s.image;
-      $('s').append(o);
+      $('s').insertBefore(o, $('s').querySelector('option[data-file]')); // (before the subtitle files, if they came first)
     }
   });
   if (!i.audio.length) return;
@@ -241,15 +243,17 @@ const prev = () => at > 0 ? others[at - 1] : round && others.length > 1 ? others
 const next = () => at >= 0 && at < others.length - 1 ? others[at + 1] : round && others.length > 1 ? others[0] : null;
 const play = p => '/_play?f=' + encodeURIComponent(p);
 fetch(enc(dir), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
-  const base = location.origin + enc(dir), names = [];
+  const base = location.origin + enc(dir), all = [];
   // (The listing's links only: not ../, folders (a trailing /), hidden files, the line under it.)
   new DOMParser().parseFromString(t, 'text/html').querySelectorAll('pre a[href]').forEach(a => {
     let p;
     try { p = decodeURIComponent(new URL(a.getAttribute('href'), base).pathname); } catch (e) { return; }
     const n = p.slice(dir.length);
-    if (p.startsWith(dir) && n && n.indexOf('/') === -1 && n[0] !== '.' && kindOf(n) === kind && names.indexOf(n) === -1) names.push(n);
+    if (p.startsWith(dir) && n && n.indexOf('/') === -1 && n[0] !== '.' && all.indexOf(n) === -1) all.push(n);
   });
-  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  all.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const names = all.filter(n => kindOf(n) === kind);
+  if (kind === 'video') sidecars(all);
   others = names.map(n => dir + n); at = others.indexOf(f);
   if (at < 0 || others.length < 2) return;
   const pn = $('pn'), link = (label, p) => {
@@ -258,6 +262,22 @@ fetch(enc(dir), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() 
   };
   pn.append(link('[← prev]', prev()), ' ' + (at + 1) + ' / ' + others.length + ' ', link('[next →]', next()));
 });
+// Subtitle files next to a video "Movie.mkv": Movie.srt, Movie.fr.srt, Movie.en.forced.srt, and
+// the same in .vtt, .ass, .ssa; in the list after the file's own tracks, as "fr (file)",
+// "en forced (file)" or "file". /_sub converts them (s=file).
+function sidecars(all) {
+  // (The name's case aside, movie.srt for Movie.mkv; a language in any script, Movie.français.srt.)
+  const stem = (f.split('/').pop().replace(/\.[^.]*$/, '') + '.').toLowerCase();
+  all.forEach(n => {
+    const m = n.toLowerCase().startsWith(stem) && n.slice(stem.length).match(/^(?:([\p{L}\p{N}_-]{1,20})\.)?(?:([\p{L}\p{N}_-]{1,20})\.)?(srt|vtt|ass|ssa)$/iu);
+    if (!m) return;
+    const o = document.createElement('option'), l = [m[1], m[2]].filter(Boolean).join(' ');
+    o.value = subs.length; subs.push({ file: dir + n });
+    o.dataset.file = '1'; o.title = n;
+    o.textContent = l ? l + ' (file)' : 'file';
+    $('s').append(o);
+  });
+}
 // The arrow keys too, except where they already mean something: on the player (it seeks), in
 // the controls (the track lists, the seek bar), and with a modifier (Alt+← is the browser's back).
 document.addEventListener('keydown', e => {
@@ -311,6 +331,80 @@ if (media) {
     const n = next();
     if (n && $('auto').checked) location.href = play(n);
   });
+}
+
+// A picture's line: "1920 × 1080 · 2.4 MB · taken 2024-07-14 18:32 · Camera": its size in pixels,
+// the file's (from the server's headers), and for a JPEG, when it was taken and the camera, from
+// the Exif in its first 128 KiB (a range). Never where (GPS). Whatever is not found is left out.
+function details() {
+  const im = $('im'), jpeg = /\.jpe?g$/i.test(f), parts = [];
+  if (im.naturalWidth) parts.push(im.naturalWidth + ' × ' + im.naturalHeight);
+  fetch(src, jpeg ? { headers: { Range: 'bytes=0-131071' }, cache: 'no-store' } : { method: 'HEAD', cache: 'no-store' }).then(r => {
+    if (!r.ok) return [null, 0];
+    const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)$/), n = m ? +m[1] : +r.headers.get('Content-Length') || 0;
+    return jpeg ? r.arrayBuffer().then(b => [b, n || b.byteLength]) : [null, n];
+  }).catch(() => [null, 0]).then(([b, n]) => {
+    const x = b ? exif(b) : {};
+    if (n) parts.push(size(n));
+    if (x.date) parts.push('taken ' + x.date);
+    if (x.camera) parts.push(x.camera);
+    if (parts.length) { $('pi').textContent = parts.join(' · '); $('pi').hidden = false; }
+  });
+}
+// (As the listing counts: 1 KB = 1024 bytes.)
+const size = n => { let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i && n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + ['bytes', 'KB', 'MB', 'GB', 'TB'][i]; };
+// Exif as cameras write it: in a JPEG's APP1 segment ("Exif\0\0"), a TIFF structure (II: little
+// endian, MM: big endian) whose first IFD holds Make (0x010F), Model (0x0110) and the Exif IFD
+// (0x8769), which holds DateTimeOriginal (0x9003). Every offset checked against the bytes there
+// are; anything unexpected ends it with what was found so far: { date, camera }.
+function exif(buf) {
+  const out = {};
+  try {
+    const d = new DataView(buf), n = d.byteLength;
+    if (n < 4 || d.getUint16(0) !== 0xFFD8) return out;
+    let p = 2, t = -1, end = 0;
+    while (p + 4 <= n) { // the segments before the picture's data
+      if (d.getUint8(p) !== 0xFF) return out;
+      const mk = d.getUint8(p + 1);
+      if (mk === 0xFF) { p++; continue; } // (padding)
+      if (mk === 0xD9 || mk === 0xDA) return out;
+      if (mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { p += 2; continue; } // (no length)
+      const len = d.getUint16(p + 2);
+      if (len < 2) return out;
+      if (mk === 0xE1 && len >= 16 && p + 10 <= n && d.getUint32(p + 4) === 0x45786966 && d.getUint16(p + 8) === 0) { t = p + 10; end = Math.min(n, p + 2 + len); break; }
+      p += 2 + len;
+    }
+    const room = end - t;
+    if (t < 0 || room < 8) return out;
+    const le = d.getUint16(t) === 0x4949;
+    if (!le && d.getUint16(t) !== 0x4D4D) return out;
+    const u16 = o => d.getUint16(t + o, le), u32 = o => d.getUint32(t + o, le);
+    if (u16(2) !== 42) return out;
+    const ifd = o => { // its entries: { tag: [type, count, where the value or its offset is] }
+      const e = {};
+      if (o < 8 || o + 2 > room) return e;
+      for (let i = 0, k = u16(o); i < k && o + 14 + i * 12 <= room; i++) { const q = o + 2 + i * 12; e[u16(q)] = [u16(q + 2), u32(q + 4), q + 8]; }
+      return e;
+    };
+    const ascii = x => { // an ASCII value, printable characters only
+      if (!x || x[0] !== 2 || x[1] < 1 || x[1] > 256) return '';
+      const o = x[1] <= 4 ? x[2] : u32(x[2]);
+      if (o < 8 || o + x[1] > room) return '';
+      let s = '';
+      for (let i = 0; i < x[1]; i++) { const c = d.getUint8(t + o + i); if (!c) break; if (c >= 32 && c < 127) s += String.fromCharCode(c); }
+      return s.trim().replace(/\s+/g, ' ').slice(0, 64);
+    };
+    const i0 = ifd(u32(4)), make = ascii(i0[0x010F]), model = ascii(i0[0x0110]);
+    // (Model often names the maker already: "Canon" and "Canon EOS R6" are "Canon EOS R6".)
+    if (model) out.camera = make && !model.toLowerCase().startsWith(make.split(' ')[0].toLowerCase()) ? make + ' ' + model : model;
+    else if (make) out.camera = make;
+    const x = i0[0x8769];
+    if (x && (x[0] === 4 || x[0] === 13) && x[1] === 1) {
+      const m = ascii(ifd(u32(x[2]))[0x9003]).match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d)/);
+      if (m && +m[1] > 0) out.date = m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+    }
+  } catch (e) {}
+  return out;
 }
 
 // Text: the file's first 1 MiB (a range: the server sends that much only), shown as it is,

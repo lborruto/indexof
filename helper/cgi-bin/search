@@ -1,30 +1,35 @@
 #!/bin/sh
-# The search page: a form (what, in which folder, files or folders, kind, how many at most)
-# and its results, listed like nginx's listing, from the mounted folders under /data.
+# The search page: a form (what, in which folder, files or folders, kind, how many at most,
+# names or inside text files) and its results, listed like nginx's listing, from the mounted
+# folders under /data.
 # shellcheck source=helper/cgi-bin/lib.sh
 . "$(dirname "$0")/lib.sh"
 printf 'Content-Type: text/html; charset=utf-8\r\n\r\n'
 # The form's values, each decoded and cut down to harmless characters: q becomes a find
-# pattern (letters, digits, spaces and a few signs only); in names a folder, which may hold any
-# character but a control one (lib.sh checks it is a folder of the page, as any other path).
+# pattern (letters, digits, spaces and a few signs only), or, inside text files, grep's fixed
+# string (any character but a control one: it is only ever one quoted argument, after -e); in
+# names a folder, which may hold any character but a control one (lib.sh checks it is a folder
+# of the page, as any other path).
 # shellcheck disable=SC1007 # q= in= ...: each set to empty, on purpose
-q= in= type= kind= max=
+q= raw= in= type= kind= max= text=
 set -f # the values are not file patterns
 IFS='&'
 for kv in $QUERY_STRING; do
   v=$(httpd -d "$(printf '%s' "${kv#*=}" | tr '+' ' ')")
   case "$kv" in
-    q=*) q=$(printf '%s' "$v" | tr -cd 'A-Za-z0-9 ._()\200-\377-') ;;
+    q=*) q=$(printf '%s' "$v" | tr -cd 'A-Za-z0-9 ._()\200-\377-'); raw=$(printf '%s' "$v" | tr -d '\000-\037\177') ;;
     in=*) in=$(printf '%s' "$v" | tr -d '\000-\037\177') ;;
     type=*) type=$v ;;
     kind=*) kind=$v ;;
     max=*) max=$v ;;
+    text=*) text=$v ;;
   esac
 done
 unset IFS
 set +f
 case "$type" in f|d) ;; *) type= ;; esac
 case "$max" in 100|500|1000|2000) ;; *) max=500 ;; esac
+[ "$text" = 1 ] && q=$raw || text=
 # shellcheck disable=SC1007 # kind= exts= (the last branch): each set to empty, on purpose
 case "$kind" in
   video) exts='mkv mp4 avi m4v mov webm ts wmv' ;;
@@ -40,45 +45,50 @@ base=/data
 if [ -n "$in" ]; then d=$(allowed_path "/$in") && [ -d "$d" ] && base=$d; fi
 rel=${base#/data}; rel=${rel#/}
 
-esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
 relhtml=$(printf '%s' "$rel" | esc)
+qhtml=$(printf '%s' "$q" | esc)
 opt() { printf '<option value="%s"%s>%s</option>' "$1" "$([ "$1" = "$3" ] && echo ' selected')" "$2"; }
-echo "<html><head><title>Search${q:+: $q}</title></head><body><h1>Search${q:+: $q}${rel:+ in /$relhtml/}</h1><hr><pre><form action=\"/_search\">"
-printf 'Search: <input name="q" value="%s" size="30" autofocus>  in: <select name="in"><option value="">everywhere</option>' "$q"
+nl=$(printf '\nx'); nl=${nl%x}
+echo "<html><head><title>Search${q:+: $qhtml}</title></head><body><h1>Search${q:+: $qhtml}${text:+ (inside text files)}${rel:+ in /$relhtml/}</h1><hr><pre><form action=\"/_search\">"
 cur=$(printf '%s' "$rel" | esc)
-# (the mounted folders and the folders in them, without the hidden ones and the refused _ ones)
-{ find /data -mindepth 1 -maxdepth 2 -type d ! -path '*/.*' ! -path '/data/_*'; [ -n "$rel" ] && echo "$base"; } | sed 's|^/data/||' | sort -u |
-  while IFS= read -r f; do e=$(printf '%s' "$f" | esc); opt "$e" "$e" "$cur"; done
+printf 'Search: <input name="q" value="%s" size="30" autofocus>  in: <select name="in">%s' "$qhtml" "$(opt '' everywhere "$cur")"
+# (the mounted folders and the folders in them, without the hidden ones, the refused _ ones and
+# the ones whose name holds a line break or another control character: such a name cannot be
+# chosen, and a line break would cut it in two options, an empty one taking "everywhere"'s place)
+{ find /data -mindepth 1 -maxdepth 2 '(' -name '.*' -o -path '/data/_*' -o -name "*$nl*" ')' -prune -o -type d -print; [ -n "$rel" ] && echo "$base"; } | sed 's|^/data/||' | sort -u |
+  while IFS= read -r f; do
+    case "$f" in ''|*[[:cntrl:]]*) continue ;; esac
+    e=$(printf '%s' "$f" | esc); opt "$e" "$e" "$cur"
+  done
 printf '</select>  type: <select name="type">%s%s%s</select>' "$(opt '' all "$type")" "$(opt f files "$type")" "$(opt d folders "$type")"
 printf '  kind: <select name="kind">%s' "$(opt '' any "$kind")"
 for k in video subtitles audio images archives games; do opt "$k" "$k" "$kind"; done
 printf '</select>  max: <select name="max">'
 for m in 100 500 1000 2000; do opt "$m" "$m" "$max"; done
-echo '</select>  <input type="submit" value="Search"></form></pre><hr>'
+printf '</select>  <label><input type="checkbox" name="text" value="1"%s> inside text files</label>' "${text:+ checked}"
+echo '  <input type="submit" value="Search"></form></pre><hr>'
 
 # The results: like nginx's listing (link, date, size), at most $max. Hidden names, the refused
 # _ folders and names holding a line break (the list is one path per line: the part after the
 # break would be read as another path, /etc/passwd say) are left out, with what is under them.
-nl=$(printf '\nx'); nl=${nl%x}
-if [ ${#q} -ge 2 ] || [ -n "$kind" ]; then
-  set -- "$base" -mindepth 1 '(' -name '.*' -o -path '/data/_*' -o -name "*$nl*" ')' -prune -o
+set -- "$base" -mindepth 1 '(' -name '.*' -o -path '/data/_*' -o -name "*$nl*" ')' -prune -o
+if [ -n "$text" ] && [ ${#q} -ge 2 ]; then
+  # Inside text files: the viewer's text kinds (not .ts, a video there), 5 MB at most (bigger is
+  # a log or a dump, slow to read through), that hold q as it is, case aside (grep -F -i: a fixed
+  # string, never a pattern; -e and --: never an option), at most 200; within the helper's time
+  # (nginx waits 120 s), what was found by then. Regular files only: no symbolic link followed.
+  # grep reads 50 files at a time, 10 s at most each, so a stopped search stops reading too (a
+  # timeout on find alone would leave the grep in flight to the end of its batch).
+  [ "$max" -gt 200 ] && max=200
+  set -- "$@" -type f -size -5242881c
+  t='txt md markdown log nfo srt vtt ass ssa sub json yaml yml toml ini conf cfg csv tsv xml sh py js css html htm'
+  set -- "$@" '('; o=; for e in $t; do set -- "$@" $o -iname "*.$e"; o=-o; done; set -- "$@" ')'
+  if [ -n "$exts" ]; then set -- "$@" '('; o=; for e in $exts; do set -- "$@" $o -iname "*.$e"; o=-o; done; set -- "$@" ')'; fi
+  timeout 110 find "$@" -print0 2>/dev/null | xargs -0 -n 50 timeout 10 grep -F -i -l -e "$q" -- 2>/dev/null | listing "$max"
+elif [ -z "$text" ] && { [ ${#q} -ge 2 ] || [ -n "$kind" ]; }; then
   [ -n "$type" ] && set -- "$@" -type "$type"
   [ -n "$q" ] && set -- "$@" -iname "*$q*"
-  if [ -n "$exts" ]; then
-    set -- "$@" '('; o=
-    for e in $exts; do set -- "$@" $o -iname "*.$e"; o=-o; done
-    set -- "$@" ')'
-  fi
-  echo "<pre id=\"list\" data-max=\"$max\">"
-  find "$@" -print 2>/dev/null | head -n "$max" |
-  while IFS= read -r f; do stat -c '%F|%s|%Y|%n' "$f"; done | awk -F'|' '
-    BEGIN { for (i = 0; i < 256; i++) ord[sprintf("%c", i)] = i }
-    function enc(s,  r, i, c) { r = ""; for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); r = r (c ~ /[A-Za-z0-9\/._~-]/ ? c : sprintf("%%%02X", ord[c])) } return r }
-    function esc(s) { gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s); gsub(/"/, "\\&quot;", s); return s }
-    function human(n,  i) { if (n < 1024) return n; for (i = 0; n >= 1024 && i < 4; i++) n /= 1024; return int(n + 0.5) substr("KMGT", i, 1) }
-    { path = substr($0, length($1 $2 $3) + 10); dir = $1 == "directory"; if (dir) path = path "/"
-      pad = 51 - length(path); if (pad < 1) pad = 1
-      printf "<a href=\"/%s\">%s</a>%" pad "s%s %8s\n", enc(path), esc(path), "", strftime("%d-%b-%Y %H:%M", $3), dir ? "-" : human($2) }'
-  echo "</pre><hr>"
+  if [ -n "$exts" ]; then set -- "$@" '('; o=; for e in $exts; do set -- "$@" $o -iname "*.$e"; o=-o; done; set -- "$@" ')'; fi
+  find "$@" -print 2>/dev/null | listing "$max"
 fi
 echo "</body></html>"

@@ -98,7 +98,8 @@ injection attempts). It needs Docker, Compose v2 and Python 3, and leaves nothin
   writable, decided by whether the folder can be written) and a small JSON of settings the pages
   read at `/_settings`. nginx checks the login cookie, serves the "Index of /" listing, takes the
   WebDAV methods for writable folders, verifies the signed links, and proxies `/_space`,
-  `/_size`, `/_search`, `/_zip`, `/_probe`, `/_sub`, `/_remux` and `/_vlc` to the helper.
+  `/_size`, `/_search`, `/_recent`, `/_zip`, `/_probe`, `/_sub`, `/_remux` and `/_vlc` to the
+  helper.
 - **`helper/`**, the `indexof-helper` image: Alpine with busybox httpd, `zip` and `ffmpeg`,
   running the CGI shell scripts in `helper/cgi-bin/`. `lib.sh` holds the one path check every
   script uses. It is on an internal network only and never published.

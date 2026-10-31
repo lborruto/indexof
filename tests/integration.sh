@@ -57,6 +57,7 @@ printf '1\n00:00:01,000 --> 00:00:02,000\nA subtitle file.\n' >"$DATA/My Stuff/s
 mkdir -p "$DATA/My Stuff/text" || exit 1
 printf 'Plain text for the viewer.\n' >"$DATA/My Stuff/text/readme.txt"
 printf '<html><body><b>shown as source</b></body></html>\n' >"$DATA/My Stuff/text/page.html"
+printf 'a backslash in the name\n' >"$DATA/My Stuff/subs/back\\slash.txt"
 printf 'Caf\351 cr\350me\n' >"$DATA/My Stuff/text/old.nfo"
 awk 'BEGIN { for (i = 1; i <= 30000; i++) printf "line %05d of a log longer than one mebibyte\n", i }' >"$DATA/My Stuff/text/big.log"
 ln -s /nowhere "$DATA/dangling"
@@ -146,6 +147,8 @@ echo "making the demo data"
 INDEXOF_HELPER_IMAGE=indexof-helper:"$TAG" sh tests/make-demo.sh "$DATA" >"$BODY" 2>&1 || fail "make-demo.sh: $(cat "$BODY")"
 expect_file "$MKV_FILE" 'demo data'
 expect_file "$DATA/movies/Amélie (2001)/L'Amour & #1?.mkv" 'demo data'
+expect_file "$DATA/movies/Short (2023).fr.srt" 'demo data'
+expect_file "$DATA/pictures/Beach Walk (2024).jpg" 'demo data'
 expect_file "$DATA/share/link-to-passwd" 'demo data'
 if [ -f "$DATA/share/a$nl/etc/passwd" ]; then ok 'demo data: share/a<line break>/etc/passwd is there'; else fail 'demo data: no share/a<line break>/etc/passwd'; fi
 many=$(find "$DATA/share/many" -type f | wc -l | tr -d ' ')
@@ -271,6 +274,7 @@ expect_status -n GET "/_sub?f=$MKV&s=0" 403
 expect_status -n GET '/_zip?p=/movies/' 302
 expect_status -n GET "/_remux?f=$MKV&a=1&t=0" 302
 expect_status -n GET '/_search?q=demo' 302
+expect_status -n GET /_recent 302
 expect_status -n GET "/_play?f=$MP4" 302
 expect_status -n PUT /share/x.txt 302 -T "$TMP/hello.txt"
 expect_no_file "$DATA/share/x.txt" 'upload without the cookie'
@@ -495,7 +499,7 @@ expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
 expect_body '/_zip?p=/share/a%0A/' 'nothing to zip'
 expect_body '/_zip?p=/share/.uploads/' 'nothing to zip'
-expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Short (2023).fr.srt' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 expect_zip '/_zip?p=/music/' 'music/' 'music/Demo Song.mp3' 'music/Démo (lossless).flac'
 curl -s -o "$BODY" -D "$TMP/headers" -H "Cookie: $COOKIE" "$BASE/_zip?p=/share/"
 if grep -Eq '^Content-Disposition: attachment; filename="[a-z0-9]{9}\.zip"' "$TMP/headers"; then ok "zip of /share/: $(grep -o 'filename="[^"]*"' "$TMP/headers")"; else fail "zip of /share/: no random name: $(grep -i disposition "$TMP/headers")"; fi
@@ -541,6 +545,8 @@ expect_search '/_search?q=Buck&in=movies' "$MKV_S"
 expect_no_search '/_search?q=Buck&in=movies' 'My%20Stuff'
 expect_search_inside '/_search?q=Buck&in=movies' '/movies/'
 expect_body '/_search?q=Buck&in=movies' '<h1>Search: Buck in /movies/</h1>'
+# (A backslash in a name is encoded in the link: a browser would read it as a slash.)
+expect_body '/_search?q=slash' 'href="/My%20Stuff/subs/back%5Cslash.txt"'
 expect_search '/_search?q=Buck&in=movies/Big%20Buck%20Test%20(2024)' "$MKV_S"
 expect_search_count '/_search?q=Buck&in=movies/Big%20Buck%20Test%20(2024)' 1
 expect_search "/_search?q=x.txt&in=$ODD_E" "/$ODD_S/x.txt"
@@ -561,10 +567,10 @@ expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/
 expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
-expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'
-expect_search_count '/_search?kind=images' 2
-expect_search '/_search?kind=subtitles' '/My%20Stuff/subs/Big%20Buck%20Test%20%282024%29.srt'
-expect_search_count '/_search?kind=subtitles' 1
+expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg' '/pictures/Beach%20Walk%20%282024%29.jpg'
+expect_search_count '/_search?kind=images' 3
+expect_search '/_search?kind=subtitles' '/My%20Stuff/subs/Big%20Buck%20Test%20%282024%29.srt' '/movies/Short%20%282023%29.fr.srt'
+expect_search_count '/_search?kind=subtitles' 2
 expect_search_count '/_search?kind=video&in=music' 0
 expect_search_count '/_search?q=Demo&kind=audio' 1
 expect_body '/_search?kind=video' '<option value="video" selected>'
@@ -602,6 +608,86 @@ expect_no_body '/_search?q=x&in=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E' '<scr
 expect_search '/_search?q=notes&type=x&kind=x&max=7' '/share/notes.txt'
 expect_body '/_search?q=notes&type=x&kind=x&max=7' '<option value="" selected>all</option>'
 expect_body '/_search?q=notes&type=x&kind=x&max=7' '<option value="" selected>any</option>'
+# The "in:" list: "everywhere" chosen when no folder is; a folder whose name holds a line break
+# (share's a<LF>) or another control character is left out (a line break once made it two
+# options, the empty one taking "everywhere"'s place).
+mkdir -p "$DATA/share/c${ctl}d" || exit 1
+expect_body '/_search?q=Buck' '<option value="" selected>everywhere</option>'
+expect_no_body '/_search?q=Buck' '<option value="" selected></option>'
+expect_no_body '/_search?q=Buck' 'value="share/a"'
+expect_no_body '/_search?q=Buck' 'value="share/c'
+expect_body '/_search?q=Buck&in=movies' '<option value="">everywhere</option>'
+expect_body '/_search?q=Buck&in=movies' '<option value="movies" selected>movies</option>'
+rmdir "$DATA/share/c${ctl}d"
+
+# Inside text files (text=1): the viewer's text kinds, under 5 MB, holding the words as they
+# are (case aside), in the folder chosen, 200 at most; never a binary file, a big one, a hidden
+# one or a symbolic link; the words are a fixed string, never a pattern, an option or the shell's.
+N="$DATA/My Stuff/notes"
+mkdir -p "$N/cap" "$N/.dot" || exit 1
+printf 'A yellow zebrafish42 swims here.\n' >"$N/fish.txt"
+printf 'zebrafish42\n' >"$N/fish.bin"
+{ head -c 6000000 /dev/zero | tr '\0' 'x'; printf '\nzebrafish42\n'; } >"$N/huge.txt"
+printf 'zebrafish42\n' >"$N/.hidden.txt"
+printf 'zebrafish42\n' >"$N/.dot/in.txt"
+ln -s fish.txt "$N/link.txt"
+# shellcheck disable=SC2016 # (written as it is: the search must find it as it is)
+printf 'run $(id) and x*y, then -v\n' >"$N/shell.md"
+i=0; while [ $i -lt 250 ]; do echo 'capword' >"$N/cap/c-$i.log"; i=$((i + 1)); done
+expect_search '/_search?q=zebrafish42&text=1' '/My%20Stuff/notes/fish.txt'
+expect_search_count '/_search?q=zebrafish42&text=1' 1
+expect_search_count '/_search?q=ZebraFish42&text=1' 1
+expect_search_count '/_search?q=zebrafish42' 0
+expect_search_count '/_search?q=zebrafish42&text=1&in=share' 0
+expect_search_count '/_search?q=zebrafish42&text=1&in=My%20Stuff/notes' 1
+expect_body '/_search?q=zebrafish42&text=1' '<h1>Search: zebrafish42 (inside text files)</h1>'
+expect_body '/_search?q=zebrafish42&text=1' 'name="text" value="1" checked>'
+expect_no_body '/_search?q=zebrafish42' 'name="text" value="1" checked>'
+expect_search_count '/_search?q=capword&text=1' 200
+expect_body '/_search?q=capword&text=1&max=2000' '<pre id="list" data-max="200">'
+expect_search_count '/_search?q=capword&text=1&max=100' 100
+expect_no_body '/_search?q=z&text=1' '<pre id="list"'
+expect_search '/_search?q=%24(id)&text=1' '/My%20Stuff/notes/shell.md'
+expect_search_count '/_search?q=%24(id)&text=1' 1
+# shellcheck disable=SC2016 # (as written)
+expect_body '/_search?q=%24(id)&text=1' '<h1>Search: $(id) (inside text files)</h1>'
+expect_no_body '/_search?q=%24(id)&text=1' 'uid='
+expect_search_count '/_search?q=%60id%60&text=1' 0
+expect_search_count '/_search?q=x*y&text=1' 1
+expect_search_count '/_search?q=**&text=1' 0
+expect_search_count '/_search?q=-v&text=1' 1
+expect_search_count '/_search?q=--help&text=1' 0
+expect_body '/_search?q=%22%3E%3Cb%3E&text=1' '<h1>Search: &quot;&gt;&lt;b&gt; (inside text files)</h1>'
+expect_no_body '/_search?q=%3Cscript%3Ealert(1)&text=1' '<script>alert'
+expect_search_count '/_search?q=root:&text=1&in=../../etc' 0
+expect_search_inside '/_search?q=zebrafish42&text=1&in=../../etc' '/My%20Stuff/notes/'
+
+# Recent: the 50 files last modified, everywhere, newest first, in the search's listing format
+# (the line under it, the viewport tag, never stored); never a folder, a hidden name or a
+# symbolic link, however new. (Their times set a day ahead: newer than anything else here.)
+R="$DATA/share/recent"
+mkdir -p "$R/newdir" "$R/.dot" || exit 1
+echo older >"$R/older.txt"; echo newer >"$R/newer.txt"; echo x >"$R/.hidden.txt"; echo x >"$R/.dot/in.txt"
+ln -s newer.txt "$R/link.txt"
+python3 -I -c '
+import os, sys, time
+t = time.time() + 86400
+for p, ahead in zip(sys.argv[1::2], sys.argv[2::2]):
+    os.utime(p, (t + int(ahead), t + int(ahead)), follow_symlinks=False)
+' "$R/older.txt" 100 "$R/newer.txt" 200 "$R/.hidden.txt" 900 "$R/.dot/in.txt" 900 "$R/newdir" 900 "$R/link.txt" 900 "$N/fish.txt" 50 || fail 'setting the recent files times'
+expect_status GET /_recent 200
+expect_header /_recent 'Cache-Control: no-store'
+expect_body /_recent '<title>Recent</title>'
+expect_body /_recent '<h1>Recent</h1>'
+expect_body /_recent "$vp"
+expect_body /_recent 'Logout'
+expect_search_count /_recent 50
+got=$(search_hrefs /_recent | head -n 3 | tr '\n' ' ')
+if [ "$got" = '/share/recent/newer.txt /share/recent/older.txt /My%20Stuff/notes/fish.txt ' ]; then ok "GET /_recent: newest first ($got)"; else fail "GET /_recent: the first three are $got"; fi
+expect_no_search /_recent '.hidden' '.dot' 'link.txt' 'newdir' 'link-to-passwd'
+got=$(search_hrefs /_recent | grep -c '/$')
+if [ "$got" = 0 ]; then ok 'GET /_recent: no folder'; else fail "GET /_recent: $got folders"; fi
+rm -rf "$R" "$N"
 
 # The player's helpers on the demo mkv: what is in it (two audio tracks, the E-AC3 one the
 # default, two text subtitle tracks), its subtitles as WebVTT, and the file repackaged with its
@@ -660,6 +746,36 @@ expect_status GET "/_sub?f=$MKV&s=-1" 400
 expect_status GET "/_sub?f=$MKV" 400
 expect_status GET '/_sub?f=/.hidden/secret.txt&s=0' 404
 expect_status GET '/_sub?f=/share/link-to-passwd&s=0' 404
+# A subtitle file next to a video (s=file): converted to WebVTT (an .srt, an old one in
+# Windows-1252, an .ass), a .vtt as it is; only those extensions, 5 MB at most, under /data, not
+# hidden. (The files made here, after the search's counts.)
+SRT='/movies/Short%20(2023).fr.srt'
+expect_status GET "/_sub?f=$SRT&s=file" 200
+if [ "$(head -c 6 "$BODY")" = WEBVTT ]; then ok '/_sub s=file (.srt) starts with WEBVTT'; else fail "/_sub s=file: $(head -c 100 "$BODY")"; fi
+cues=$(grep -c -- '-->' "$BODY")
+if [ "$cues" = 2 ] && grep -Eq '^00:01\.000 --> 00:04\.000$' "$BODY"; then ok '/_sub s=file (.srt): 2 cues, the first at 1-4 s'; else fail "/_sub s=file: $cues cues in: $(head -c 300 "$BODY")"; fi
+expect_body "/_sub?f=$SRT&s=file" 'Un fichier de sous-titres à côté de la vidéo.'
+expect_header "/_sub?f=$SRT&s=file" 'Content-Type: text/vtt'
+printf '1\r\n00:00:02,000 --> 00:00:03,000\r\nCaf\351 cr\350me\r\n' >"$DATA/My Stuff/subs/old.srt"
+expect_body '/_sub?f=/My%20Stuff/subs/old.srt&s=file' 'Café crème'
+printf '[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,An ASS line.\n' >"$DATA/My Stuff/subs/a.ass"
+expect_body '/_sub?f=/My%20Stuff/subs/a.ass&s=file' 'An ASS line.'
+printf 'WEBVTT\n\n00:01.000 --> 00:02.000\nA <b>VTT</b> line.\n' >"$DATA/My Stuff/subs/a.vtt"
+expect_body '/_sub?f=/My%20Stuff/subs/a.vtt&s=file' 'A <b>VTT</b> line.'
+# (a playlist dressed as an .srt: read as SubRip, it opens nothing)
+printf '#EXTM3U\n#EXTINF:1,\n/data/share/notes.txt\n' >"$DATA/My Stuff/subs/playlist.srt"
+expect_no_body '/_sub?f=/My%20Stuff/subs/playlist.srt&s=file' 'Demo data'
+expect_status GET "/_sub?f=$MP4&s=file" 415
+expect_status GET '/_sub?f=/My%20Stuff/text/readme.txt&s=file' 415
+expect_status GET '/_sub?f=/../etc/passwd&s=file' 404
+expect_status GET '/_sub?f=/movies/../../etc/passwd&s=file' 404
+printf '1\n00:00:01,000 --> 00:00:02,000\nhidden\n' >"$DATA/My Stuff/subs/.hidden.srt"
+expect_status GET '/_sub?f=/My%20Stuff/subs/.hidden.srt&s=file' 404
+printf '1\n00:00:01,000 --> 00:00:02,000\nhidden\n' >"$DATA/.hidden/x.srt"
+expect_status GET '/_sub?f=/.hidden/x.srt&s=file' 404
+awk 'BEGIN { for (i = 0; i < 60000; i++) printf "%d\n00:00:01,000 --> 00:00:02,000\nA line of a subtitle file over five megabytes, ninety bytes long.\n\n", i + 1 }' >"$DATA/My Stuff/subs/big.srt"
+expect_status GET '/_sub?f=/My%20Stuff/subs/big.srt&s=file' 413
+expect_body '/_sub?f=/My%20Stuff/subs/big.srt&s=file' 'over 5 MB'
 
 # Repackaged with another audio track: a=1 (AAC) as a fragmented MP4, a=0 (E-AC3, which MP4
 # cannot stream) as Matroska; the video and the audio copied (the same packets, byte for byte, as
@@ -828,6 +944,7 @@ helper_down() { # PATH: an error status (5xx), within 5 seconds
 }
 helper_down '/_size?p=/movies/'
 helper_down '/_search?q=Buck'
+helper_down '/_recent'
 helper_down '/_space?p=/share/'
 helper_down '/_zip?p=/movies/'
 helper_down "/_probe?f=$MKV"
@@ -901,7 +1018,7 @@ if [ -n "$chrome" ]; then
   "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port="$CDP_PORT" --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
   chrome_pid=$!
   i=0; until curl -s http://127.0.0.1:"$CDP_PORT"/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
-  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" INDEXOF_RW_DIR="$DATA/share" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
   INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui-viewer.mjs" "$BASE" 'My Stuff/text' || { kill "$chrome_pid" 2>/dev/null; fail 'the viewer (tests/ui-viewer.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
