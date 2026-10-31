@@ -7,6 +7,15 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+### Changed
+
+- A click on a file's name opens it: in the viewer for videos, music, pictures and text files,
+  in the browser's own reader for a PDF; anything else (a zip, an ISO…) downloads, as before.
+  `[download]` and `[raw]` (the file as the server sends it) are on every file; `[play]` and
+  `[view]` are gone, the name does that now.
+- The demo data has a `documents` folder with one file of each main kind (the README's listing
+  screenshot).
+
 ## [1.1.0] - 2026-10-31
 
 ### Added

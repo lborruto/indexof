@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/listing.webp" alt="A Documents folder: nginx's Index of / with sizes and dates, [zip] [rename] [delete] on each line, the search and sort line above, and the upload line, free space and logout below" width="900">
+  <img src="docs/screenshots/listing.webp" alt="A documents folder with one file of each kind (a folder, a zip, a video, a disk image, notes, a PDF, a song, a GIF, a picture): nginx's Index of / with sizes and dates, [download] [raw] on every file, [vlc] on the video and the song, [zip] on the folder, [rename] [delete] on each line, the search and sort line above, and the upload line, free space and logout below" width="900">
 </p>
 
 ## What it does
@@ -22,7 +22,8 @@
 - **Upload, download, organise.** Upload from the browser (several files, three at a time, each
   with its %, time left and `[cancel]`), make folders, `[rename]` or move, `[delete]`, in the
   folders you mount writable; drop files on the page to upload them; tick lines to zip, move or
-  delete them together. Download any file with a click. Prefer the terminal? Set
+  delete them together. `[download]` on every file; `[raw]` opens it in the browser as the
+  server sends it. Prefer the terminal? Set
   `INDEXOF_SCP` and the page shows the `scp` line for the folder you are in, ready to copy.
 - **Find things.** A live filter on the folder you are in, and Search across all of them: text,
   folder, files or folders, kind (documents, pictures, videos, archives…). Sort by name, date or
@@ -33,11 +34,12 @@
 - **Read-only where you want it.** A folder mounted `:ro` can be browsed, searched, downloaded
   and zipped, never changed. A writable one takes uploads and changes. Nothing else to
   configure.
-- **Videos, music, pictures and text too.** `[play]` and `[view]` open them in the browser as
+- **Videos, music, pictures and text too.** A click on the name opens them in the browser as
   they are, never converted, with the audio track and subtitles from inside the file. ← and →
   go through the folder, music and episodes play on into the next file, and a video starts again
-  where you stopped. Notes, logs, subtitles and code are shown as text. What the browser cannot
-  play opens in VLC with one click (`[vlc]`).
+  where you stopped. Notes, logs, subtitles and code are shown as text, a PDF opens in the
+  browser's reader, anything else (a zip, an ISO…) downloads. What the browser cannot play opens
+  in VLC with one click (`[vlc]`).
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
@@ -164,8 +166,8 @@ echo "INDEXOF_LINK_SECRET=$(openssl rand -hex 32)" >> .env
 ```
 
 In `compose.yaml`, mount `./demo/movies:/data/movies:ro`, `./demo/music:/data/music:ro`,
-`./demo/pictures:/data/pictures:ro` and `./demo/share:/data/share` (the same four, all `:ro`, in
-the helper), then:
+`./demo/pictures:/data/pictures:ro`, `./demo/share:/data/share` and
+`./demo/documents:/data/documents` (the same five, all `:ro`, in the helper), then:
 
 ```bash
 INDEXOF_PORT=8098 COMPOSE_PROJECT_NAME=indexof-demo docker compose up -d
@@ -197,7 +199,7 @@ variables and `docker compose down`.
 ## Playing media
 
 <p align="center">
-  <img src="docs/screenshots/player.webp" alt="The player on a video from the demo folder: the audio track and subtitle selectors above the video, open in VLC, playlist, copy VLC link and download below it" width="900">
+  <img src="docs/screenshots/player.webp" alt="The player on a video from the demo folder: [raw] [download] [folder] and play next above it, the audio track and subtitle selectors below, then open in VLC, playlist and copy VLC link" width="900">
 </p>
 
 indexof never converts anything: the browser gets the file as it is, so what plays is what your

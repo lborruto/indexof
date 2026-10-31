@@ -3,9 +3,9 @@
 // read-only one, [rename] [delete] on lines inside a writable folder but never on a mounted
 // folder itself; the free space on the home page; [delete selected] [move selected] for ticked
 // lines of a writable folder only, and doing it; files dropped on the page uploaded (a drop
-// anywhere else doing nothing); [view] on a text file. Works in a folder of its own, ui-test, made
-// in the writable folder and removed at the end. Drives a Chrome already running with --remote-debugging-port, over the DevTools
-// protocol (Node 24, nothing to install).
+// anywhere else doing nothing); what a file's name, [download] and [raw] do. Works in a folder of
+// its own, ui-test, made in the writable folder and removed at the end. Drives a Chrome already
+// running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
 //
 //   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui.mjs http://127.0.0.1:18099 share movies many
 //   argument 1  the page's address; 2  a writable folder; 3  a read-only folder; 4  (optional) a
@@ -61,12 +61,20 @@ check(roNames.length === 2 && !(await tick(roNames)), `/${ro}/: ticked lines off
 
 const t = `/${rw}/ui-test/`;
 await dav('MKCOL', t);
-for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) await dav('PUT', t + n, n + '\n');
+for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.pdf', 'f.bin']) await dav('PUT', t + n, n + '\n');
+await dav('MKCOL', t + 'sub/');
 await show(t);
 check(await ev(`document.getElementById('ws').hidden`), `${t}: no [delete selected] [move selected] before a line is ticked`);
 check(await tick(['a.txt', 'b.txt']), `${t}: ticked lines offer [delete selected] [move selected]`);
-const viewHref = await ev(`(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'a.txt'); const v = a && [...a.parentNode.querySelectorAll('a')].find(l => l.textContent === '[view]'); return v ? v.getAttribute('href') : ''; })()`);
-check(viewHref === '/_play?f=' + encodeURIComponent(t + 'a.txt'), `${t}a.txt (a text file) has [view] (${viewHref})`);
+// A file's name: the viewer for what it shows (a text file here), the browser for a PDF, else a
+// download; [download] (downloads) and [raw] (opens) on every file; a folder's name opens it.
+const line = n => `(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); if (!a) return null; const l = t => [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === t); const d = l('[download]'), r = l('[raw]'); return { href: a.getAttribute('href'), dl: a.hasAttribute('download'), d: d ? d.getAttribute('href') + ' ' + d.hasAttribute('download') : '', r: r ? r.getAttribute('href') + ' ' + r.hasAttribute('download') : '', view: !!(l('[view]') || l('[play]')) }; })()`;
+const txt = await ev(line('a.txt')), pdf = await ev(line('e.pdf')), bin = await ev(line('f.bin')), dir = await ev(line('sub/'));
+check(txt && txt.href === '/_play?f=' + encodeURIComponent(t + 'a.txt') && !txt.dl, `${t}a.txt: its name opens the viewer (${txt && txt.href})`);
+check(txt && txt.d === encodeURI(t + 'a.txt') + ' true' && txt.r === encodeURI(t + 'a.txt') + ' false' && !txt.view, `${t}a.txt: [download] downloads, [raw] opens, no [view] (${txt && txt.d}; ${txt && txt.r})`);
+check(pdf && pdf.href === 'e.pdf' && !pdf.dl, `${t}e.pdf: its name opens it in the browser (${pdf && pdf.href})`);
+check(bin && bin.href === 'f.bin' && bin.dl && bin.d === encodeURI(t + 'f.bin') + ' true', `${t}f.bin (no preview): its name downloads it`);
+check(dir && dir.href === 'sub/' && !dir.dl && !dir.d, `${t}sub/: a folder's name opens the folder, no [download]`);
 // Delete selected: one confirm, naming the count, then gone.
 await ev(`window.confirm = q => { sessionStorage.asked = q; return true; }; document.getElementById('ds').click(); 1`);
 await sleep(2500);
