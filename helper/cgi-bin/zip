@@ -36,4 +36,4 @@ cd "$base" || exit 0
 # download) and without names holding a line break (zip reads the list one line per name).
 printf '%s\n' "$list" | while IFS= read -r d; do
   find "./${d#"$base"/}" \( -name '.*' -o -name "*$nl*" \) -prune -o ! -type l -print
-done | exec zip -q -0 -@ -
+done | exec zip -q -0 -nw -@ - # -nw: the names are names, never patterns (a file called * stays one file)

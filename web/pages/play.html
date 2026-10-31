@@ -11,10 +11,11 @@
 <pre id="m"></pre><hr>
 <pre><span id="vl" hidden><a href="#" id="ov">open in VLC</a>  <a href="#" id="pl">playlist</a>  <a href="#" id="cv">copy VLC link</a>  </span><a id="dl" href="#">download</a>  <a href="#" onclick="history.back(); return false;">back</a></pre>
 <script>
-const f = new URLSearchParams(location.search).get('f') || '', $ = id => document.getElementById(id);
+// f: a path of this server only (/folder/...), never //other.host/... (which a browser would load from elsewhere).
+const f0 = new URLSearchParams(location.search).get('f') || '', f = /^\/[^/\\]/.test(f0) ? f0 : '/', $ = id => document.getElementById(id);
 const kind = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i.test(f) ? 'image' : /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i.test(f) ? 'audio' : 'video';
 const v = $(kind === 'audio' ? 'au' : 'v');
-const src = f.split('/').map(encodeURIComponent).join('/'), q = 'f=' + encodeURIComponent(f);
+const src = location.origin + f.split('/').map(encodeURIComponent).join('/'), q = 'f=' + encodeURIComponent(f);
 $('t').textContent = (kind === 'image' ? 'View: ' : 'Play: ') + f;
 document.title = f.split('/').pop();
 $('dl').href = src;
