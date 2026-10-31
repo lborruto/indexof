@@ -21,19 +21,23 @@
   to install. It is nginx's own "Index of /", unchanged in look, with sizes and dates.
 - **Upload, download, organise.** Upload from the browser (several files, three at a time, each
   with its %, time left and `[cancel]`), make folders, `[rename]` or move, `[delete]`, in the
-  folders you mount writable. Download any file with a click. Prefer the terminal? Set
+  folders you mount writable; drop files on the page to upload them; tick lines to zip, move or
+  delete them together. Download any file with a click. Prefer the terminal? Set
   `INDEXOF_SCP` and the page shows the `scp` line for the folder you are in, ready to copy.
 - **Find things.** A live filter on the folder you are in, and Search across all of them: text,
   folder, files or folders, kind (documents, pictures, videos, archives…). Sort by name, date or
-  size; pages of 100; each folder's size filled in as you look; the disk's free space.
+  size; pages of 100; each folder's size filled in as you look; the disk's free space (on the
+  home page too, once per disk).
 - **Zip and take away.** `[zip]` on any folder, or tick some lines and "zip selected". The
   archive is streamed as it is made, nothing is written on the server.
 - **Read-only where you want it.** A folder mounted `:ro` can be browsed, searched, downloaded
   and zipped, never changed. A writable one takes uploads and changes. Nothing else to
   configure.
-- **Videos, music and pictures too.** `[play]` and `[view]` open them in the browser as they
-  are, never converted, with the audio track and subtitles from inside the file. What the browser
-  cannot play opens in VLC with one click (`[vlc]`).
+- **Videos, music, pictures and text too.** `[play]` and `[view]` open them in the browser as
+  they are, never converted, with the audio track and subtitles from inside the file. ← and →
+  go through the folder, music and episodes play on into the next file, and a video starts again
+  where you stopped. Notes, logs, subtitles and code are shown as text. What the browser cannot
+  play opens in VLC with one click (`[vlc]`).
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
@@ -211,6 +215,16 @@ browser can decode. Measured on Chrome 154 on macOS:
   repackaged on the fly with that track (a copy-only remux, never re-encoded) and the player's
   own play and seek line takes over.
 - **Other browsers** have their own lists. Whatever will not play in the browser opens in VLC.
+- **Through the folder.** `[← prev]` and `[next →]` (or the arrow keys) go to the folder's
+  previous and next file of the same kind: picture to picture, song to song, episode to episode.
+  With **play next** ticked (the default), music and videos go on into the next file when one
+  ends, and stop after the last.
+- **Where you stopped.** The browser remembers how far you got in each video and song, and
+  starts there next time ("resumed at 42:10", with `[start over]`). It is kept in that browser
+  only, nothing on the server.
+- **Text files.** Notes, logs, subtitles, `.nfo`, configuration and code open as plain text
+  (the first 1 MiB; old Windows encodings are read too). HTML and Markdown are shown as source,
+  never run. `[raw]` opens any file as the server sends it, `[download]` saves it.
 
 ### Open in VLC
 
