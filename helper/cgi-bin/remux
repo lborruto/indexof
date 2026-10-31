@@ -1,0 +1,53 @@
+#!/bin/sh
+# ?f=&a=N&t=SECONDS: a video (a path of the page, /media/... or /share/..., as a real file
+# under /data, not a hidden one) with its Nth audio track (ffmpeg's a:N, from 0) instead of the
+# default one, from SECONDS in, for the player: repackaged, never converted ("direct stream"):
+# the video and that audio track copied as they are (fragmented MP4, or Matroska). A browser plays only
+# a file's default audio track; this is how another one is heard. Streamed as it is made,
+# nothing written on the server; ffmpeg is killed by SIGPIPE on its next write once the browser
+# (so nginx, so httpd) has gone away.
+nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+f= a=0 t=0
+set -f; IFS='&'
+for kv in $QUERY_STRING; do
+  case "$kv" in
+    f=*) f=$(httpd -d "$(printf '%s' "${kv#f=}" | tr '+' ' ')") ;;
+    a=*) a=${kv#a=} ;;
+    t=*) t=${kv#t=} ;;
+  esac
+done
+unset IFS; set +f
+fail() { printf 'HTTP/1.1 %s\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1" "$2"; exit 0; }
+d=
+case "$f" in *"$nl"*) ;; *) d=$(realpath "/data/${f#/}" 2>/dev/null) ;; esac
+case "$d" in /data/media/*|/data/share/*) ;; *) d= ;; esac
+case "$d" in */.*) d= ;; esac
+[ -f "$d" ] || fail '404 Not Found' 'no such file'
+case "$a" in [0-9]|[0-9][0-9]) ;; *) fail '400 Bad Request' 'a: the audio track, 0 to 99' ;; esac
+# Seconds as a plain number, up to 6 digits with up to 3 decimals: never anything else (an
+# option, a command).
+i=${t%%.*}; r=${t#"$i"}
+case "$i" in ''|*[!0-9]*) i= ;; esac
+case "$r" in ''|.[0-9]|.[0-9][0-9]|.[0-9][0-9][0-9]) ;; *) i= ;; esac
+[ -n "$i" ] && [ ${#i} -le 6 ] || fail '400 Bad Request' 't: seconds, like 90 or 90.5'
+# The tracks must be there (ffmpeg would send nothing otherwise); V: video that is not a cover.
+v=$(ffprobe -v error -select_streams V:0 -show_entries stream=codec_name,has_b_frames -of csv=p=0 "$d" 2>/dev/null | head -n 1)
+vc=${v%%,*}; bf=${v#*,}
+[ -n "$vc" ] || fail '404 Not Found' 'no video track'
+ac=$(ffprobe -v error -select_streams "a:$a" -show_entries stream=codec_name -of csv=p=0 "$d" 2>/dev/null | head -n 1)
+[ -n "$ac" ] || fail '404 Not Found' 'no such audio track'
+tag=; [ "$vc" = hevc ] && tag='-tag:v hvc1' # (HEVC in MP4 plays as hvc1)
+# Copied, so it starts at the keyframe at or before t.
+# ffmpeg seeks 3/23 s early when the video has B-frames (its "dts heuristic"): countered, plus a
+# millisecond, so that a keyframe's own time (from /_probe?k=) lands on it, never one before.
+case "$bf" in [1-9]*) ss=$(awk -v t="$t" 'BEGIN { printf "%.6f", t + 0.001 + 3 / 23 }') ;; *) ss=$(awk -v t="$t" 'BEGIN { printf "%.6f", t + 0.001 }') ;; esac
+# A fragmented MP4 holds AAC, MP3, Opus, FLAC and ALAC as a stream; the others (AC3, E-AC3, DTS,
+# TrueHD..., which a browser cannot play: the picture without sound) go into Matroska.
+case "$ac" in
+  aac|mp3|opus|flac|alac)
+    printf 'Content-Type: video/mp4\r\n\r\n'
+    exec ffmpeg -nostdin -v error -ss "$ss" -i "$d" -map 0:V:0 -map "0:a:$a" -c copy $tag -sn -dn -f mp4 -movflags frag_keyframe+empty_moov+default_base_moof - ;;
+  *)
+    printf 'Content-Type: video/x-matroska\r\n\r\n'
+    exec ffmpeg -nostdin -v error -ss "$ss" -i "$d" -map 0:V:0 -map "0:a:$a" -c copy -sn -dn -f matroska -live 1 - ;;
+esac

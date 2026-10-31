@@ -1,0 +1,13 @@
+<html>
+<head><title>Login</title></head>
+<body>
+<h1>Login</h1><hr>
+<form onsubmit="document.cookie = 'session=' + encodeURIComponent(this.p.value.trim()) + '; path=/; max-age=2592000; SameSite=Strict'; window.location.href = '/'; return false;">
+<pre>Password: <input type="password" name="p" autofocus> <input type="submit" value="Enter"> <span id="e"></span></pre>
+</form><hr>
+<script>
+// Back here with a session cookie: the server did not accept it (logged in for 30 days otherwise).
+if (document.cookie.split('; ').some(c => c.indexOf('session=') === 0 && c.length > 8)) document.getElementById('e').textContent = 'Wrong password';
+</script>
+</body>
+</html>

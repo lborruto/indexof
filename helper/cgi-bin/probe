@@ -1,0 +1,92 @@
+#!/bin/sh
+# ?f=: what is in a video (a path of the page, /media/... or /share/..., as a real file under
+# /data, not a hidden one), one line each, for the player's Audio and Subtitles lines:
+#   duration SECONDS
+#   video CODEC                                (the first video track; cover pictures left out)
+#   audio N CODEC LANG CHANNELS DEFAULT TITLE  (N: ffmpeg's a:N, the Nth audio track, from 0)
+#   sub N CODEC LANG text|image DEFAULT TITLE  (image: pictures, which a browser cannot show)
+# ?f=&k=SECONDS: keyframe SECONDS, the last keyframe at or before SECONDS, where a stream asked
+# from SECONDS really begins: the player seeks to it so that its clock and the subtitles stay
+# right. Tags (language, title) are cut down to harmless characters.
+nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+f= k=
+set -f; IFS='&'
+for kv in $QUERY_STRING; do
+  case "$kv" in
+    f=*) f=$(httpd -d "$(printf '%s' "${kv#f=}" | tr '+' ' ')") ;;
+    k=*) k=${kv#k=} ;;
+  esac
+done
+unset IFS; set +f
+fail() { printf 'HTTP/1.1 %s\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1" "$2"; exit 0; }
+d=
+case "$f" in *"$nl"*) ;; *) d=$(realpath "/data/${f#/}" 2>/dev/null) ;; esac
+case "$d" in /data/media/*|/data/share/*) ;; *) d= ;; esac
+case "$d" in */.*) d= ;; esac
+[ -f "$d" ] || fail '404 Not Found' 'no such file'
+
+if [ -n "$k" ]; then
+  # Seconds as a plain number, up to 6 digits with up to 3 decimals: never anything else.
+  i=${k%%.*}; r=${k#"$i"}
+  case "$i" in ''|*[!0-9]*) i= ;; esac
+  case "$r" in ''|.[0-9]|.[0-9][0-9]|.[0-9][0-9][0-9]) ;; *) i= ;; esac
+  [ -n "$i" ] && [ ${#i} -le 6 ] || fail '400 Bad Request' 'k: seconds, like 90 or 90.5'
+  printf 'Content-Type: text/plain\r\n\r\n'
+  # The first video packet read after seeking to k is the keyframe a seek to k lands on. Its
+  # time from the file's start (as ffmpeg's -ss counts, and the subtitles from /_sub), to the
+  # millisecond; nothing when there is none (k past the end, no video).
+  pts= dts= start=0
+  ffprobe -v error -select_streams V:0 -show_entries format=start_time:packet=pts_time,dts_time -of flat -read_intervals "$k%+#1" "$d" 2>/dev/null | {
+    while IFS= read -r line; do
+      val=${line#*=}; val=${val#\"}; val=${val%\"}
+      case "$val" in *[!0-9.-]*|'') continue ;; esac
+      case "$line" in
+        packets.packet.0.pts_time=*) pts=$val ;;
+        packets.packet.0.dts_time=*) dts=$val ;;
+        format.start_time=*) start=$val ;;
+      esac
+    done
+    [ -n "$pts" ] || pts=$dts
+    [ -n "$pts" ] && awk -v t="$pts" -v s="$start" 'BEGIN { t -= s; if (t < 0) t = 0; printf "keyframe %.3f\n", t }'
+  }
+  exit 0
+fi
+
+printf 'Content-Type: text/plain; charset=utf-8\r\n\r\n'
+# A title from the file: flat's escapes (\n, \", ...) undone, cut down to harmless characters,
+# 80 at most.
+clean() { printf '%s' "$1" | sed 's/\\[nr]/ /g; s/\\\(.\)/\1/g' | tr -cd "A-Za-z0-9 ._()+&,:;'!?/\200-\377-" | head -c 80; }
+flush() { # the line for the stream just read
+  case "$type" in
+    video) [ "$pic" = 1 ] || [ -n "$video" ] || { video=$codec; printf 'video %s\n' "$codec"; } ;;
+    audio) printf 'audio %s %s %s %s %s%s\n' "$na" "$codec" "$lang" "$ch" "$def" "${title:+ $title}"; na=$((na + 1)) ;;
+    subtitle)
+      case "$codec" in subrip|ass|ssa|mov_text|webvtt|text) kind=text ;; *) kind=image ;; esac
+      printf 'sub %s %s %s %s %s%s\n' "$ns" "$codec" "$lang" "$kind" "$def" "${title:+ $title}"; ns=$((ns + 1)) ;;
+  esac
+}
+# ffprobe's flat output (one key=value a line, strings quoted, line breaks in them escaped):
+# a stream starts at its index line; each value checked to be what it should be.
+ffprobe -v error -show_entries format=duration:stream=index,codec_type,codec_name,channels:stream_disposition=default,attached_pic:stream_tags=language,title -of flat "$d" 2>/dev/null | {
+  in=; type= codec='?' ch=0 def=0 pic=0 lang=und title= video= na=0 ns=0
+  while IFS= read -r line; do
+    key=${line%%=*}; val=${line#*=}; val=${val#\"}; val=${val%\"}
+    case "$key" in
+      format.duration) printf 'duration %s\n' "$(printf '%s' "$val" | tr -cd '0-9.' | head -c 16)" ;;
+      streams.stream.*)
+        rest=${key#streams.stream.}; field=${rest#*.}
+        case "$field" in
+          index) [ -n "$in" ] && flush; in=1 type= codec='?' ch=0 def=0 pic=0 lang=und title= ;;
+          codec_type) case "$val" in video|audio|subtitle) type=$val ;; esac ;;
+          codec_name) case "$val" in *[!a-z0-9_]*|'') ;; *) [ ${#val} -le 24 ] && codec=$val ;; esac ;;
+          channels) case "$val" in [0-9]|[0-9][0-9]) ch=$val ;; esac ;;
+          disposition.default) [ "$val" = 1 ] && def=1 ;;
+          disposition.attached_pic) [ "$val" = 1 ] && pic=1 ;;
+          tags.[Ll][Aa][Nn][Gg][Uu][Aa][Gg][Ee]) case "$val" in *[!A-Za-z0-9-]*|'') ;; *) [ ${#val} -le 12 ] && lang=$val ;; esac ;;
+          tags.[Tt][Ii][Tt][Ll][Ee]) [ -n "$title" ] || title=$(clean "$val") ;;
+        esac ;;
+    esac
+  done
+  [ -n "$in" ] && flush
+}
+exit 0

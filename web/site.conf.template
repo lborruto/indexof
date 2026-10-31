@@ -1,0 +1,113 @@
+# The page's routes. A template: the image's entrypoint fills in FILES_PASSWORD and FILES_LINK_SECRET (only
+# variables set in the container's environment; nginx's own $variables are left alone).
+
+# Logged in (the cookie), or, for a file, a temporary link from /_vlc (for VLC, which cannot log
+# in): only reading (GET, HEAD), only that file, and only until it expires.
+map $cookie_session $files_cookie {
+    "${FILES_PASSWORD}" 1;
+    default 0;
+}
+map "$files_cookie:$secure_link:$request_method" $files_ok {
+    ~^1: 1;
+    "0:1:GET" 1;
+    "0:1:HEAD" 1;
+    default 0;
+}
+
+server {
+    listen 8080;
+    root /srv;
+    charset utf-8;
+    disable_symlinks on;
+    client_max_body_size 0;
+    absolute_redirect off; # 302 /_login on the port the browser used, not nginx's 8080
+    location = /_login { default_type text/html; alias /etc/nginx/pages/login.html; }
+    location = /_upload { internal; default_type text/html; alias /etc/nginx/pages/upload.html; }
+    location = /_space {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 403; }
+        proxy_pass http://files-space:8081/cgi-bin/space;
+        add_header Cache-Control no-store always;
+    }
+    location = /_size {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 403; }
+        proxy_pass http://files-space:8081/cgi-bin/size;
+        proxy_read_timeout 600s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_zip {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        proxy_pass http://files-space:8081/cgi-bin/zip;
+        proxy_buffering off; # streamed as it is made
+        proxy_read_timeout 3600s;
+    }
+    location = /_vlc {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 403; }
+        proxy_pass http://files-space:8081/cgi-bin/vlc;
+        add_header Cache-Control no-store always;
+    }
+    location = /_play {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        default_type text/html;
+        alias /etc/nginx/pages/play.html;
+    }
+    # The player's tracks: what is in the file, a subtitle track as WebVTT, and the file repackaged
+    # with another audio track (copied as it is, never converted: a browser plays only the default).
+    location = /_probe {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 403; }
+        proxy_pass http://files-space:8081/cgi-bin/probe;
+        proxy_read_timeout 120s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_remux {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        proxy_pass http://files-space:8081/cgi-bin/remux;
+        proxy_buffering off; # streamed as it is made
+        proxy_read_timeout 3600s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_sub {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 403; }
+        proxy_pass http://files-space:8081/cgi-bin/sub;
+        proxy_read_timeout 600s; # ffmpeg reads through the whole file for its subtitles
+        add_header Cache-Control no-store always;
+    }
+    location = /_search {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        proxy_pass http://files-space:8081/cgi-bin/search;
+        proxy_read_timeout 120s;
+        add_after_body /_upload;
+        add_header Cache-Control no-store always;
+    }
+    location ~ /\. { deny all; }
+    # Files (downloads and uploads): sandboxed, so an uploaded page cannot run as this site
+    # and read the session cookie.
+    location ~ [^/]$ {
+        secure_link $arg_k,$arg_e;
+        secure_link_md5 "$secure_link_expires$uri ${FILES_LINK_SECRET}";
+        if ($files_ok = 0) { return 302 /_login; }
+        add_header Content-Security-Policy "sandbox" always;
+        add_header X-Content-Type-Options nosniff always;
+        dav_methods PUT DELETE MOVE;
+        create_full_put_path on;
+        dav_access user:rw group:r all:r;
+    }
+    # share itself: listed like any folder, but never deleted or moved (it would take all of it).
+    location = /share/ {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        add_after_body /_upload;
+        dav_methods off;
+    }
+    # Folders: the listing, with the line under it, and new folders.
+    location / {
+        if ($cookie_session != "${FILES_PASSWORD}") { return 302 /_login; }
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        add_after_body /_upload;
+        dav_methods MKCOL DELETE MOVE;
+        dav_access user:rw group:r all:r;
+    }
+}

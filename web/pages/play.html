@@ -1,0 +1,204 @@
+<html>
+<head><title>Play</title></head>
+<body>
+<h1 id="t">Play</h1><hr>
+<video id="v" controls autoplay style="max-width: 100%; max-height: 80vh; background: #000" hidden></video>
+<audio id="au" controls autoplay style="width: 100%" hidden></audio>
+<img id="im" style="max-width: 100%; max-height: 85vh" alt="" hidden>
+<pre id="c" hidden><a href="#" id="pp">pause</a>  <input type="range" id="sk" min="0" max="0" step="1" value="0" style="width: 50%; vertical-align: middle">  <span id="tm"></span></pre>
+<pre id="tracks" hidden>Audio: <select id="as" disabled><option value="">-</option></select>  <span id="an"></span>
+<span id="sl">Subtitles: <select id="s"><option value="">off</option></select>  <span id="n"></span></span></pre>
+<pre id="m"></pre><hr>
+<pre><span id="vl" hidden><a href="#" id="ov">open in VLC</a>  <a href="#" id="pl">playlist</a>  <a href="#" id="cv">copy VLC link</a>  </span><a id="dl" href="#">download</a>  <a href="#" onclick="history.back(); return false;">back</a></pre>
+<script>
+const f = new URLSearchParams(location.search).get('f') || '', $ = id => document.getElementById(id);
+const kind = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i.test(f) ? 'image' : /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i.test(f) ? 'audio' : 'video';
+const v = $(kind === 'audio' ? 'au' : 'v');
+const src = f.split('/').map(encodeURIComponent).join('/'), q = 'f=' + encodeURIComponent(f);
+$('t').textContent = (kind === 'image' ? 'View: ' : 'Play: ') + f;
+document.title = f.split('/').pop();
+$('dl').href = src;
+const msg = t => { $('m').textContent = t; }, note = t => { $('n').textContent = t; };
+const fmt = s => { s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+// Audio Chrome cannot decode (most Blu-ray rips): the picture plays, without sound.
+const SILENT = ['ac3', 'eac3', 'dts', 'truehd', 'mlp', 'pcm_bluray', 'pcm_dvd'];
+
+// Never converted. The file as it is (direct), with the browser's own controls; for another
+// audio track than the default one, either the browser's own track switch (Chrome has it only
+// with the "Experimental Web Platform features" flag) or /_remux: the file repackaged on the fly
+// with that track, video and audio copied as they are ("direct stream"), from `off` seconds in,
+// with the line of controls above instead (a seek is a new one, from the keyframe at or before
+// the chosen time, which /_probe?k= gives, so the clock and the subtitles stay right).
+let info = null, mode = 'direct', off = 0, track = 0;
+if (kind === 'image') { $('im').hidden = false; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
+else {
+  v.hidden = false; $('tracks').hidden = false; $('vl').hidden = false; $('sl').hidden = kind === 'audio';
+  v.src = src;
+  v.onerror = () => msg(mode === 'remux'
+    ? 'The repackaged file stopped: choose the track again, or open it in VLC.'
+    : 'This browser cannot play this file (its ' + kind + ' format):\nopen it in VLC, or download it.');
+}
+function direct(t) {
+  mode = 'direct'; off = 0;
+  v.controls = true; $('c').hidden = true;
+  v.src = src;
+  if (t > 0) v.addEventListener('loadedmetadata', () => { v.currentTime = t; }, { once: true });
+  v.play().catch(() => {});
+  cues();
+}
+function remux(t) {
+  mode = 'remux'; off = t;
+  v.controls = false; $('c').hidden = false; $('sk').max = Math.floor(info.dur); $('sk').disabled = !info.dur;
+  v.src = '/_remux?' + q + '&a=' + track + '&t=' + t;
+  v.play().catch(() => {});
+  cues(); tick();
+}
+function seek(t) { // in remux mode, to t seconds: a new one from the keyframe at or before it
+  t = Math.max(0, info.dur ? Math.min(t, info.dur - 1) : t);
+  fetch('/_probe?' + q + '&k=' + t.toFixed(3), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(r => {
+    const m = r.match(/^keyframe ([0-9.]+)/m);
+    remux(m ? +m[1] : Math.floor(t));
+  });
+}
+// The remux line: play/pause, the seek bar (the time it is dragged to, then a seek once it rests),
+// "12:34 / 1:52:10".
+let dragging = false, dragT;
+function tick() {
+  const at = off + v.currentTime;
+  if (!dragging) $('sk').value = Math.floor(at);
+  $('tm').textContent = fmt(at) + (info.dur ? ' / ' + fmt(info.dur) : '');
+  $('pp').textContent = v.paused ? 'play' : 'pause';
+}
+$('pp').onclick = e => { e.preventDefault(); if (v.paused) v.play().catch(() => {}); else v.pause(); };
+$('sk').oninput = () => {
+  dragging = true; clearTimeout(dragT);
+  $('tm').textContent = fmt(+$('sk').value) + ' / ' + fmt(info.dur);
+  dragT = setTimeout(() => { dragging = false; seek(+$('sk').value); }, 500);
+};
+$('sk').onchange = () => { if (dragging) { clearTimeout(dragT); dragging = false; seek(+$('sk').value); } };
+['play', 'pause', 'timeupdate'].forEach(e => v.addEventListener(e, () => { if (mode === 'remux') tick(); }));
+$('as').onchange = () => {
+  const n = +$('as').value, at = off + v.currentTime, a = info.audio.find(x => x.n === n);
+  track = n; say(a);
+  if (v.audioTracks && v.audioTracks.length === info.audio.length) { // the browser's own switch
+    for (let i = 0; i < v.audioTracks.length; i++) v.audioTracks[i].enabled = i === info.audio.indexOf(a);
+    return;
+  }
+  if (a === played()) direct(at); else seek(at);
+};
+// The track the file plays as it is: Chrome takes the first one it can decode (measured: an MKV
+// with E-AC3 then AAC plays the AAC), whatever the file calls its default.
+const played = () => info.audio.find(a => SILENT.indexOf(a.codec) === -1) || info.audio.find(a => a.def) || info.audio[0];
+const name = a => (a.lang + ' ' + a.title).trim() + ' (' + a.codec + (a.ch ? ', ' + ({ 1: 'mono', 2: 'stereo', 6: '5.1', 8: '7.1' }[a.ch] || a.ch + 'ch') : '') + ')';
+function say(a) { $('an').textContent = SILENT.indexOf(a.codec) !== -1 ? a.codec.toUpperCase() + ': no sound in this browser (open in VLC, below)' : ''; }
+
+// Subtitles: the text tracks inside the file, each fetched from /_sub (as WebVTT) when chosen
+// and kept, shown through one track of the player's, shifted by `off` in remux mode.
+const subs = []; let sub = null, disp = null, seq = 0;
+function parse(t) { // WebVTT: [[start, end, text], ...]
+  const out = [], secs = s => s.split(':').reduce((a, b) => a * 60 + parseFloat(b.replace(',', '.')), 0);
+  t.replace(/\r/g, '').split(/\n\n+/).forEach(b => {
+    const l = b.split('\n'), i = l.findIndex(x => x.indexOf('-->') !== -1);
+    if (i < 0 || i === l.length - 1) return;
+    const m = l[i].match(/([\d:.,]+)\s*-->\s*([\d:.,]+)/);
+    if (m) out.push([secs(m[1]), secs(m[2]), l.slice(i + 1).join('\n')]);
+  });
+  return out;
+}
+function cues() {
+  if (!disp) { if (!sub) return; disp = v.addTextTrack('subtitles', 'Subtitles', ''); }
+  disp.mode = 'hidden'; // (its cues are out of reach while it is disabled)
+  const cs = disp.cues; while (cs.length) disp.removeCue(cs[0]);
+  if (!sub || !sub.cues) { disp.mode = 'disabled'; return; }
+  sub.cues.forEach(([a, b, t]) => { if (b > off && b > a) disp.addCue(new VTTCue(Math.max(0, a - off), b - off, t)); });
+  disp.mode = 'showing';
+}
+$('s').onchange = () => {
+  const s = $('s').value === '' ? null : subs[+$('s').value], n = ++seq;
+  sub = s;
+  if (!s || s.cues) { cues(); return; }
+  note('loading subtitles… (the whole file is read for them: a few seconds on a big one)');
+  fetch('/_sub?' + q + '&s=' + s.n, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
+    s.cues = parse(t); note(s.cues.length ? '' : 'no subtitles in that track');
+    if (seq === n) cues();
+  });
+};
+
+// VLC plays what a browser cannot (AC3, DTS...): a playlist holding a temporary link to the file
+// (/_vlc: that file only, reading only, 12 hours), which VLC opens; or the link itself, for VLC's
+// File > Open Network. In Chrome's downloads, "Always open files of this type" makes the next
+// playlists open VLC straight away.
+function vlcLink() {
+  return fetch('/_vlc?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
+    t = t.trim();
+    if (!/^e=\d+&k=[\w-]+$/.test(t)) { msg('No VLC link (' + (t || 'server error') + ').'); return null; }
+    // (Fully encoded, ( ) ' ! * too: the VLC Link helper takes nothing a shell could read otherwise.)
+    return location.origin + (p => p.split('/').map(x => encodeURIComponent(x).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())).join('/'))(f) + '?' + t;
+  });
+}
+// vlc://: opens VLC itself, on a computer with the VLC Link helper (files/vlc-link/: it hands
+// VLC the http link inside, from this server only).
+$('ov').onclick = e => {
+  e.preventDefault();
+  vlcLink().then(url => {
+    if (!url) return;
+    v.pause();
+    location.href = 'vlc://' + url.replace(/^http:\/\//, ''); // (without http: Chrome rewrites vlc://http://... as vlc://http//...)
+    msg('Opening VLC… (nothing happens? this computer needs the VLC Link helper, files/vlc-link/,\nor use "playlist")');
+  });
+};
+$('pl').onclick = e => {
+  e.preventDefault();
+  vlcLink().then(url => {
+    if (!url) return;
+    const a = document.createElement('a'), nm = f.split('/').pop();
+    a.href = URL.createObjectURL(new Blob(['#EXTM3U\n#EXTINF:-1,' + nm + '\n' + url + '\n'], { type: 'audio/x-mpegurl' }));
+    a.download = nm.replace(/\.[^.]*$/, '') + '.m3u';
+    document.body.append(a); a.click(); a.remove();
+    v.pause();
+    msg('VLC playlist downloaded: open it.\nIn Chrome\'s downloads, "Always open files of this type" opens VLC by itself next time.');
+  });
+};
+$('cv').onclick = e => {
+  e.preventDefault();
+  vlcLink().then(url => {
+    if (!url) return;
+    const t = document.createElement('textarea'); t.value = url; document.body.append(t); t.select(); document.execCommand('copy'); t.remove();
+    msg('VLC link copied (valid 12 hours):\nin VLC, File > Open Network, paste.');
+  });
+};
+
+// What is in the file: its audio tracks to choose from (the one it plays as it is, first), and
+// its subtitle tracks.
+if (kind !== 'image') fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
+  const i = { dur: 0, video: '', audio: [] };
+  t.split('\n').forEach(l => {
+    const w = l.split(' ');
+    if (w[0] === 'duration') i.dur = parseFloat(w[1]) || 0;
+    else if (w[0] === 'video') i.video = w[1] || '';
+    else if (w[0] === 'audio' && w.length >= 6) i.audio.push({ n: +w[1], codec: w[2], lang: w[3], ch: +w[4], def: w[5] === '1', title: w.slice(6).join(' ') });
+    else if (w[0] === 'sub' && w.length >= 6) {
+      const s = { n: +w[1], codec: w[2], lang: w[3], image: w[4] === 'image', title: w.slice(6).join(' ') }, o = document.createElement('option');
+      o.value = subs.length; subs.push(s);
+      o.textContent = (s.lang + ' ' + s.title).trim() + (s.image ? ' (image subtitles, cannot be shown)' : ' (' + s.codec + ')');
+      o.disabled = s.image;
+      $('s').append(o);
+    }
+  });
+  if (!i.audio.length) return;
+  info = i;
+  const sel = $('as');
+  sel.textContent = '';
+  i.audio.forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.n;
+    o.textContent = name(a) + (SILENT.indexOf(a.codec) !== -1 ? ', no sound here' : '');
+    sel.append(o);
+  });
+  track = played().n; sel.value = track; say(played());
+  // Another track needs the video (remux) or the browser's own switch.
+  sel.disabled = i.audio.length < 2 || (!i.video && !v.audioTracks);
+});
+</script>
+</body>
+</html>

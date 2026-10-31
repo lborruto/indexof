@@ -1,0 +1,13 @@
+#!/bin/sh
+printf 'Content-Type: text/plain
+
+'
+# ?p=: a path of the page (/media/... or /share/...), as the real folder or file under /data,
+# not a hidden one; empty otherwise.
+p=; set -f; IFS='&'
+for kv in $QUERY_STRING; do case "$kv" in p=*) p=$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')") ;; esac; done
+unset IFS; set +f
+d=$(realpath "/data/${p#/}" 2>/dev/null)
+case "$d" in /data/media|/data/media/*|/data/share|/data/share/*) ;; *) d= ;; esac
+case "$d" in */.*) d= ;; esac
+[ -n "$d" ] && du -sh "$d" 2>/dev/null | cut -f1
