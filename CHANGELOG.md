@@ -7,6 +7,18 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+### Added
+
+- `[link]` on every line of a listing (and of the search and the recent files): copies the
+  file's or the folder's whole address, to paste in a message. Whoever opens it logs in first:
+  it is not a share link.
+
+### Changed
+
+- A zip over 20 GiB is asked first ("Zip 512G? It downloads as it is made: nothing is stored on
+  the server."), a folder's `[zip]` as `[zip selected]`; a folder whose size is still being
+  measured after 3 seconds is asked about too. Smaller zips start at once, as before.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added

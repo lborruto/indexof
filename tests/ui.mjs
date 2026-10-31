@@ -4,8 +4,8 @@
 // folder itself; the free space on the home page; [delete selected] [move selected] for ticked
 // lines of a writable folder only, and doing it; files dropped on the page uploaded (a drop
 // anywhere else doing nothing), a folder dropped or picked going up whole, a picture pasted;
-// what a file's name, [download] and [raw] do; the Recent link and /_recent; the pages on a
-// phone. Works in a folder of its own, ui-test, made in the writable folder and removed at the
+// what a file's name, [download] and [raw] do; [link] copying the address; a big zip asked
+// first; the Recent link and /_recent; the pages on a phone. Works in a folder of its own, ui-test, made in the writable folder and removed at the
 // end. Drives a Chrome already
 // running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
 //
@@ -21,13 +21,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
 const ws = new WebSocket(webSocketDebuggerUrl);
 await new Promise((ok, ko) => { ws.onopen = ok; ws.onerror = ko; });
-let id = 0; const waiting = new Map();
-ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && waiting.has(d.id)) { waiting.get(d.id)(d); waiting.delete(d.id); } };
+let id = 0; const waiting = new Map(), downloads = [];
+ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && waiting.has(d.id)) { waiting.get(d.id)(d); waiting.delete(d.id); } else if (d.method === 'Browser.downloadWillBegin') downloads.push(d.params.url); };
 const send = (method, params = {}, sessionId) => new Promise(r => { const i = ++id; waiting.set(i, r); ws.send(JSON.stringify({ id: i, method, params, sessionId })); });
 const { result: { targetId } } = await send('Target.createTarget', { url: 'about:blank' });
 const { result: { sessionId } } = await send('Target.attachToTarget', { targetId, flatten: true });
 await send('Network.enable', {}, sessionId);
 await send('Network.setCookie', { name: 'session', value: encodeURIComponent(password), url: base, path: '/' }, sessionId);
+// (Downloads refused, but seen: a zip started or not. The clipboard readable, when this Chrome allows it.)
+await send('Browser.setDownloadBehavior', { behavior: 'deny', eventsEnabled: true });
+const clip = (await send('Browser.grantPermissions', { origin: new URL(base).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] })).error ? null : true;
+await send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
 const show = async path => {
   await send('Page.navigate', { url: base + path.split('/').map(encodeURIComponent).join('/') }, sessionId);
   await sleep(2500);
@@ -66,6 +70,36 @@ const t = `/${rw}/ui-test/`;
 await dav('MKCOL', t);
 for (const n of ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.pdf', 'f.bin']) await dav('PUT', t + n, n + '\n');
 await dav('MKCOL', t + 'sub/');
+await show(t);
+// [link] on a file and on a folder: the item's whole address, copied, and said on the page. A
+// folder's [zip], and [zip selected], over 20 GiB: asked first, nothing started when refused.
+const click = (n, label) => ev(`(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); const l = a && [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === ${JSON.stringify(label)}); if (l) l.click(); return !!l; })()`);
+for (const n of ['a.txt', 'sub/']) {
+  const want = new URL(base).origin + t.split('/').map(encodeURIComponent).join('/') + n;
+  const had = await click(n, '[link]');
+  await sleep(300);
+  const said = (await ev(`document.getElementById('s').textContent`)).trim();
+  const copied = clip ? await ev(`navigator.clipboard.readText().catch(e => 'unreadable: ' + e.message)`) : null;
+  check(had && said === 'link copied: ' + want && (copied === null || copied === want || copied.startsWith('unreadable')), `${t}${n}: [link] copies ${want}: "${said}"${copied === null ? '' : ', clipboard: ' + copied}`);
+}
+const zipAt = async (size, what) => {
+  downloads.length = 0;
+  await ev(`window.asked = []; window.confirm = q => { asked.push(q); return false; }; HTMLFormElement.prototype.submit = function () { asked.push('submitted'); }; 1`);
+  await ev(`(() => { const r = rows.find(r => r.path.endsWith('/sub/')); r.size = ${size}; r.sz.textContent = ' ' + short(${size}); return 1; })()`);
+  if (what === 'folder') await click('sub/', '[zip]'); else await ev(`document.getElementById('zs').click(); 1`);
+  await sleep(1000);
+  return { asked: await ev(`JSON.stringify(asked)`), here: await ev(`location.pathname`), dl: downloads.length };
+};
+const G = Math.pow(1024, 3);
+let z = await zipAt(30 * G, 'folder');
+check(z.asked.startsWith('["Zip 30G? It downloads as it is made') && z.here === t && !z.dl, `${t}sub/ at 30G: [zip] asks first, refused: nothing started (${z.asked})`);
+z = await zipAt(G, 'folder');
+check(z.asked === '[]' && z.dl === 1, `${t}sub/ at 1G: [zip] asks nothing, the zip starts (${z.dl} download)`);
+await tick(['e.pdf', 'sub/']);
+z = await zipAt(30 * G, 'selection');
+check(z.asked.startsWith('["Zip 30G? It downloads') && !z.asked.includes('submitted'), `${t}: [zip selected] (e.pdf, sub/ at 30G) asks first, refused: nothing posted (${z.asked})`);
+z = await zipAt(G, 'selection');
+check(z.asked === '["submitted"]', `${t}: [zip selected] (e.pdf, sub/ at 1G) asks nothing, posts the zip`);
 await show(t);
 check(await ev(`document.getElementById('ws').hidden`), `${t}: no [delete selected] [move selected] before a line is ticked`);
 check(await tick(['a.txt', 'b.txt']), `${t}: ticked lines offer [delete selected] [move selected]`);
@@ -175,11 +209,11 @@ for (const [what, url] of [['/', '/'], [`/${rw}/`, `/${encodeURIComponent(rw)}/`
 await visit(`/${encodeURIComponent(rw)}/`);
 let taps = await ev(tap);
 check(taps && taps.h >= 28 && taps.gap >= 12, `390 px phone: /${rw}/: [rename] and [delete] ${taps && taps.h} px tall, ${taps && taps.gap} px apart`);
-// (e.pdf's line, a short name with [download] [raw] [rename] [delete]: under 2.6 times the name's line.)
+// (e.pdf's line, a short name with [download] [raw] [link] [rename] [delete]: under 2.6 times the name's line.)
 await visit(`/${encodeURIComponent(rw)}/ui-test/`);
 const two = await ev(`(() => { const n = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === 'e.pdf'), l = n && n.parentNode; if (!l) return null;
   return { h: Math.round(l.getBoundingClientRect().height), lh: parseFloat(getComputedStyle(n).lineHeight), links: [...l.querySelectorAll('a')].slice(1).map(a => a.textContent).join(' ') }; })()`);
-check(two && two.links === '[download] [raw] [rename] [delete]' && two.h < 2.6 * two.lh, `390 px phone: ${t}e.pdf: its line ${two && two.h} px tall, the name's line ${two && two.lh} px (${two && two.links})`);
+check(two && two.links === '[download] [raw] [link] [rename] [delete]' && two.h < 2.6 * two.lh, `390 px phone: ${t}e.pdf: its line ${two && two.h} px tall, the name's line ${two && two.lh} px (${two && two.links})`);
 await phone(false);
 await visit(`/${encodeURIComponent(rw)}/`);
 taps = await ev(tap);

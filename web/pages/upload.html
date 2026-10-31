@@ -44,6 +44,13 @@ const TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini
 const viewable = p => VIDEO.test(p) || AUDIO.test(p) || IMAGE.test(p) || TEXT.test(p), PDF = /\.pdf$/i;
 const newTab = a => { a.target = '_blank'; a.rel = 'noopener'; return a; };
 const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexOf(z.slice(-1)) + 1);
+// (Back the other way, as du -h writes it: 1.5G, 30G.)
+const short = n => { let i = -1; while (n >= 1024 && i < 3) { n /= 1024; i++; } return i < 0 ? String(n) : (n < 10 ? n.toFixed(1) : Math.round(n)) + 'KMGT'[i]; };
+// (navigator.clipboard needs https, or this computer; selecting and copying works on http too.)
+const copy = (text, note) => {
+  const old = () => { const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); msg(note); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(() => msg(note), old); else old();
+};
 // The folders mounted under /data, each read-only or writable, and the scp destination when one
 // is set: /_settings, written when the server starts. A path can be changed when its folder is
 // writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
@@ -80,8 +87,6 @@ function scpLine() {
     scp.value = 'scp ' + (names || '<your files>') + ' ' + dest;
   };
   pick.addEventListener('change', fill); fill();
-  // (navigator.clipboard needs https; selecting and copying works on http too.)
-  const copy = (text, note) => { const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); msg(note); };
   document.getElementById('cp').onclick = () => copy(scp.value, 'scp command copied: run it from the folder the files are in');
   // A page never learns where a chosen file is on the computer, so for a command that works from
   // anywhere: type scp, drag the files onto the terminal (it writes their full paths), paste this.
@@ -138,18 +143,39 @@ function show() {
   document.getElementById('pg').textContent = 'page ' + (page + 1) + '/' + pages;
   measure(shown.slice(page * PAGE, page * PAGE + PAGE));
 }
-// Folder sizes, measured for the lines shown, three at a time.
+// Folder sizes, measured for the lines shown, three at a time. A folder's [zip] asks for its own
+// at once (sizeOf()) when it is not there yet.
 const queue = [];
 let measuring = 0;
+function sizeOf(r) {
+  if (r.sizing) return r.sizing;
+  const put = v => { if (r.sz) r.sz.textContent = (' ' + v).padStart(r.szLen); };
+  put('...');
+  return r.sizing = fetch('/_size?p=' + encodeURIComponent(r.path), { cache: 'no-store' }).then(x => x.ok ? x.text() : '').then(z => {
+    z = z.trim(); put(z || '?'); if (z) r.size = bytes(z);
+  }).catch(() => put('?'));
+}
 function measure(list) {
   list.forEach(r => { if (r.folder && r.sz && !r.sized) { r.sized = true; queue.push(r); } });
   while (measuring < 3 && queue.length) {
-    const r = queue.shift(), put = v => { r.sz.textContent = (' ' + v).padStart(r.szLen); };
-    measuring++; put('...');
-    fetch('/_size?p=' + encodeURIComponent(r.path), { cache: 'no-store' }).then(x => x.ok ? x.text() : '').then(z => {
-      z = z.trim(); put(z || '?'); if (z) r.size = bytes(z);
-    }).catch(() => put('?')).finally(() => { measuring--; measure([]); });
+    const r = queue.shift();
+    if (r.sizing) continue;
+    measuring++;
+    sizeOf(r).finally(() => { measuring--; measure([]); });
   }
+}
+// Before a zip over 20 GiB (or of a folder whose size is not known after 3 s of measuring): asked
+// first. A zip is made while it downloads, so a big one takes long and is easily started by mistake.
+const HUGE = 20 * Math.pow(1024, 3);
+// (A line's size as it shows it, when that is the one known: 512G, not 512.0G.)
+const shownSize = r => { const t = r.sz ? r.sz.textContent.trim() : ''; return t && bytes(t) === r.size ? t : short(r.size); };
+async function zipOk(sel) {
+  const unknown = () => sel.filter(r => r.folder && !(r.size >= 0));
+  if (unknown().length) await Promise.race([Promise.all(unknown().map(sizeOf)), new Promise(ok => setTimeout(ok, 3000))]);
+  const sum = sel.reduce((t, r) => t + (r.size > 0 ? r.size : 0), 0);
+  if (sum > HUGE) return confirm('Zip ' + (sel.length === 1 ? shownSize(sel[0]) : short(sum)) + '? It downloads as it is made: nothing is stored on the server.');
+  if (unknown().length) return confirm(sel.length === 1 ? 'Zip this folder? Its size is still being measured.' : 'Zip the selection? A folder\'s size is still being measured.');
+  return true;
 }
 // The selection: ticked lines, downloaded as one zip (posted: a long selection would not fit in a
 // link); deleted or moved too when every one of them could be on its own (writable()).
@@ -159,9 +185,10 @@ function count() {
   document.getElementById('sc').textContent = n ? n + ' selected' : '';
   document.getElementById('ws').hidden = !(n && sel.every(r => writable(r.path)));
 }
-function zipSelected() {
-  const paths = rows.filter(r => r.box.checked).map(r => r.path);
+async function zipSelected() {
+  const sel = ticked(), paths = sel.map(r => r.path);
   if (!paths.length) { msg('tick some lines first'); return; }
+  if (!await zipOk(sel)) return;
   const f = document.createElement('form');
   f.method = 'post'; f.action = '/_zip';
   paths.forEach(p => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'p'; i.value = p; f.append(i); });
@@ -196,15 +223,18 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders; [download] and [raw]
-// (the file as the server sends it, in the browser, in a new tab) for every file; [vlc] for videos and sound;
-// [rename] [delete] in a writable folder (never the folder itself).
+// (the file as the server sends it, in the browser, in a new tab) for every file; [link] on every
+// line; [vlc] for videos and sound; [rename] [delete] in a writable folder (never the folder itself).
 function actions() {
   rows.forEach(row => {
     const acts = [];
     const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); return l; };
-    if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
+    if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path)).onclick = e => { e.preventDefault(); zipOk([row]).then(ok => { if (ok) location.href = e.target.href; }); };
     else { link('download', enc(row.path)).download = ''; newTab(link('raw', enc(row.path))); }
+    // The item's address, copied: the folder, or the file as [raw] serves it. (Not a share link:
+    // whoever opens it logs in first.)
+    act('link', () => { const u = location.origin + enc(row.path); copy(u, 'link copied: ' + u); });
     if (VIDEO.test(row.path) || AUDIO.test(row.path)) act('vlc', () => vlc(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;

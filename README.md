@@ -46,8 +46,6 @@
   in VLC with one click (`[vlc]`).
 - **On the phone too.** The same pages, fitted to its screen: each file in two lines, links big
   enough to tap.
-
-  <img src="docs/screenshots/phone.webp" alt="The same documents folder on a phone: each file's name with its date and size, its links on the line under it" width="260">
 - **One password, no accounts.** Everyone in the household uses the same password; a login
   holds 30 days.
 - **Two small containers.** nginx (the unprivileged image) for the pages and the files, and a
