@@ -4,6 +4,7 @@
 # player. Text subtitles only (SubRip, ASS/SSA, MP4 text, WebVTT): pictures (PGS, DVD) cannot
 # become text. ffmpeg reads through the whole file for them, so a big one takes a while.
 nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+# shellcheck disable=SC1007 # f= s=: each set to empty, on purpose
 f= s=
 set -f; IFS='&'
 for kv in $QUERY_STRING; do

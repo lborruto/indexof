@@ -1,6 +1,7 @@
 #!/bin/sh
 printf 'Content-Type: text/html; charset=utf-8\r\n\r\n'
 # The form's values, each decoded and cut down to harmless characters.
+# shellcheck disable=SC1007 # q= in= ...: each set to empty, on purpose
 q= in= type= kind= max=
 set -f # the values are not file patterns
 IFS='&'
@@ -18,6 +19,7 @@ unset IFS
 set +f
 case "$type" in f|d) ;; *) type= ;; esac
 case "$max" in 100|500|1000|2000) ;; *) max=500 ;; esac
+# shellcheck disable=SC1007 # kind= exts= (the last branch): each set to empty, on purpose
 case "$kind" in
   video) exts='mkv mp4 avi m4v mov webm ts wmv' ;;
   subtitles) exts='srt ass ssa sub vtt idx' ;;

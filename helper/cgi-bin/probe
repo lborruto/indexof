@@ -9,6 +9,7 @@
 # from SECONDS really begins: the player seeks to it so that its clock and the subtitles stay
 # right. Tags (language, title) are cut down to harmless characters.
 nl=$(printf '\nx'); nl=${nl%x} # a line break: a name with one is not looked up
+# shellcheck disable=SC1007 # f= k=: each set to empty, on purpose
 f= k=
 set -f; IFS='&'
 for kv in $QUERY_STRING; do
@@ -35,6 +36,7 @@ if [ -n "$k" ]; then
   # The first video packet read after seeking to k is the keyframe a seek to k lands on. Its
   # time from the file's start (as ffmpeg's -ss counts, and the subtitles from /_sub), to the
   # millisecond; nothing when there is none (k past the end, no video).
+  # shellcheck disable=SC1007 # pts= dts=: each set to empty, on purpose
   pts= dts= start=0
   ffprobe -v error -select_streams V:0 -show_entries format=start_time:packet=pts_time,dts_time -of flat -read_intervals "$k%+#1" "$d" 2>/dev/null | {
     while IFS= read -r line; do
@@ -67,6 +69,7 @@ flush() { # the line for the stream just read
 }
 # ffprobe's flat output (one key=value a line, strings quoted, line breaks in them escaped):
 # a stream starts at its index line; each value checked to be what it should be.
+# shellcheck disable=SC1007 # type= title= video= (here and at the index line): each set to empty, on purpose
 ffprobe -v error -show_entries format=duration:stream=index,codec_type,codec_name,channels:stream_disposition=default,attached_pic:stream_tags=language,title -of flat "$d" 2>/dev/null | {
   in=; type= codec='?' ch=0 def=0 pic=0 lang=und title= video= na=0 ns=0
   while IFS= read -r line; do
