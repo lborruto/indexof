@@ -446,6 +446,19 @@ expect_body '/_space?p=/share/' ' free / '
 if grep -Eq '^[0-9.]+[KMGTP]? free / [0-9.]+[KMGTP]?$' "$BODY"; then ok "/_space?p=/share/ -> $(cat "$BODY")"; else fail "/_space?p=/share/: $(cat "$BODY")"; fi
 expect_empty '/_space?p=/../'
 expect_empty '/_space?p=/_search/'
+expect_empty '/_space?p='
+# The home page (p=/): each disk holding a mounted folder, once; the fixture's folders are all on
+# one disk, so "X free / Y" alone, as in a folder.
+for p in %2F /; do
+  expect_status GET "/_space?p=$p" 200
+  if [ "$(sed -E 's/[0-9.]+[KMGTP]?/N/g' "$BODY")" = 'N free / N' ]; then ok "/_space?p=$p (the home page, one disk) -> $(cat "$BODY")"; else fail "/_space?p=$p: '$(cat "$BODY")', wanted 'X free / Y'"; fi
+done
+# Several disks (the helper image alone, two tmpfs besides the fixture's disk; a hidden one and
+# one starting with _ left out): each named after its first folder by name, joined with " · ".
+docker run --rm --network none -e QUERY_STRING=p=%2F -v "$DATA/share:/data/share:ro" -v "$DATA/movies:/data/movies:ro" --tmpfs /data/backup --tmpfs /data/_cache --tmpfs /data/.snap --entrypoint /www/cgi-bin/space indexof-helper:"$TAG" >"$BODY" 2>&1 || fail "space with several disks: $(cat "$BODY")"
+tr -d '\r' <"$BODY" | sed '1,/^$/d' >"$TMP/space"
+got=$(sed -E 's/[0-9.]+[KMGTP]?/N/g' "$TMP/space")
+if [ "$got" = 'backup N free / N · movies N free / N' ]; then ok "/_space?p=/ with several disks -> $(cat "$TMP/space")"; else fail "/_space?p=/ with several disks: '$(cat "$BODY")'"; fi
 
 # Zips: a folder's [zip] link (GET) and the selection's form (POST), valid for Python's zipfile,
 # with a random 9-character name, streamed (nothing left in the helper's /tmp). The symbolic
