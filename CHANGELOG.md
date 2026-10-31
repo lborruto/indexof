@@ -7,6 +7,12 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+### Added
+
+- On a phone, the same pages fit the screen: the listing's lines wrap (the name, then the date,
+  the size and the links under it, big enough to tap), and so do the search, the upload line,
+  the viewer and the login page. On a computer nothing changes.
+
 ## [1.2.0] - 2026-10-31
 
 ### Changed

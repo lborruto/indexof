@@ -1,9 +1,10 @@
 // The viewer (/_play), checked in a real browser: [raw] [download] [folder], previous / next with
 // "n / N" and the arrow keys, text shown as text (a page as its source, an old file in
-// Windows-1252, the first 1 MiB of a big one, no /_probe), a video resumed where it was left, and
-// "play next" moving on at the end of a sound file. Uses the demo data's pictures/, music/ and
-// movies/ (tests/make-demo.sh) and a folder of text files given here. Drives a Chrome already
-// running with --remote-debugging-port, over the DevTools protocol (Node 24, nothing to install).
+// Windows-1252, the first 1 MiB of a big one, no /_probe), a video resumed where it was left,
+// "play next" moving on at the end of a sound file, and the viewer on a phone. Uses the demo
+// data's pictures/, music/ and movies/ (tests/make-demo.sh) and a folder of text files given
+// here. Drives a Chrome already running with --remote-debugging-port, over the DevTools protocol
+// (Node 24, nothing to install).
 //
 //   INDEXOF_PASSWORD=… CDP_PORT=9333 node tests/ui-viewer.mjs http://127.0.0.1:18099 'My Stuff/text'
 //   argument 1  the page's address; 2  a folder holding readme.txt, page.html (with <b>),
@@ -107,6 +108,15 @@ s = await state();
 check(s.f === songs[1], `the end of ${songs[0]}: on to ${songs[1]} (got ${s.f})`);
 check(s.pn.includes('2 / 2') && !s.next, `${songs[1]}: "2 / 2", no [next →] (no wrap for sound) (${JSON.stringify(s.pn)})`);
 console.log(`note  viewer: ${songs[1]} ${s.paused ? 'waits for play (this browser blocks autoplay)' : 'plays by itself'}`);
+
+// A phone (390 px wide, Chrome's device mode): the viewport tag, and no page wider than the screen.
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }, sessionId);
+for (const p of [long, pics[0], at('readme.txt'), at('big.log')]) {
+  await view(p);
+  const f = await ev(`(() => { const v = document.querySelector('meta[name=viewport]'), d = document.documentElement; return { vp: !!v && /width=device-width/.test(v.content), sw: d.scrollWidth, cw: d.clientWidth }; })()`);
+  check(f.vp && f.sw <= f.cw, `390 px phone: ${p}: ${f.vp ? 'viewport tag' : 'NO viewport tag'}, ${f.sw} px wide in ${f.cw}`);
+}
+await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 
 ws.close();
 process.exit(failed ? 1 : 0);

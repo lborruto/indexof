@@ -361,6 +361,16 @@ expect_body '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 'hello'
 expect_body '/My%20Stuff/text/page.html' '<b>shown as source</b>'
 expect_no_body '/My%20Stuff/text/page.html' 'Logout'
 expect_body '/My%20Stuff/text/' 'Logout'
+# The viewport tag (a phone shows the page at its own width): in the listings' <head> and the
+# pages', never added to a file.
+vp='<head><meta name="viewport" content="width=device-width, initial-scale=1">'
+expect_body / "$vp"
+expect_body /share/ "$vp"
+expect_body '/My%20Stuff/text/' "$vp"
+expect_body '/_search?q=Buck' "$vp"
+expect_body /_login 'name="viewport"'
+expect_body "/_play?f=$MP4" 'name="viewport"'
+expect_no_body '/My%20Stuff/text/page.html' 'viewport'
 expect_status MOVE '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 204 -H "Destination: $BASE/share/pat/caf%C3%A9%20(2).txt"
 expect_file "$DATA/share/pat/café (2).txt" 'rename of an odd name'
 expect_status DELETE '/share/pat/caf%C3%A9%20(2).txt' 204
