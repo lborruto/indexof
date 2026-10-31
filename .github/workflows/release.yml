@@ -1,0 +1,141 @@
+name: Release
+
+# A push to main publishes the `main` tag of both images; a tag vX.Y.Z publishes X.Y.Z, X.Y and
+# latest, then creates the GitHub release from that version's section of CHANGELOG.md. Each
+# image (web/ → ghcr.io/<owner>/indexof, helper/ → ghcr.io/<owner>/indexof-helper) is built for
+# linux/amd64 and linux/arm64 with provenance and SBOM attestations, and the pushed digest is
+# scanned by Trivy. The packages stay private until the owner makes them public.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# Pushes queue rather than cancel one another: a cancelled run could leave one image published
+# and the other not.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Every action is pinned to the commit of a release at least two weeks old (resolved from its
+# tag on 2026-10-31); the comment names the release and the date it was published. Dependabot
+# updates the version but not the date; its 14-day cooldown keeps the age rule. No Actions cache
+# feeds these builds: the published images are built from scratch.
+jobs:
+  # A tag is checked before anything is published. On main, CI runs from the push itself.
+  checks:
+    name: CI on the tagged commit
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: ${{ matrix.image }} (linux/amd64, linux/arm64)
+    needs: checks
+    if: always() && (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: indexof
+            context: web
+            description: "A no-frills file server: nginx's Index of /, plus login, uploads, search, zips and direct play"
+          - image: indexof-helper
+            context: helper
+            description: "indexof's helper: folder sizes, search, zips, subtitles and remuxing, on an internal network only"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0 (2026-09-15)
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1 (2026-09-16)
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0 (2026-07-02)
+        env:
+          # Annotate the image index too, not only each platform's manifest.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          # vX.Y.Z → X.Y.Z, X.Y and latest (the default flavor adds latest on semver tags only);
+          # a push to main → main.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=main,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 (2026-07-29)
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0 (2026-09-15)
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+      # The digest just pushed, pulled back with the login above (the package is private).
+      # Fixable HIGH and CRITICAL vulnerabilities fail the run, so no GitHub release is created.
+      - name: Trivy on the pushed image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (2026-04-22)
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  release:
+    name: GitHub release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      # The notes are the `## [X.Y.Z]` section of CHANGELOG.md (Keep a Changelog); a tag without
+      # its section fails here, so the changelog is written before the tag.
+      - name: Notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          awk -v heading="## [$version]" '
+            index($0, heading) == 1 { found = 1; next }
+            /^## / { found = 0 }
+            found
+          ' CHANGELOG.md >"$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section; add it before tagging v$version"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set --
+          case "$TAG" in *-*) set -- --prerelease ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" "$@"

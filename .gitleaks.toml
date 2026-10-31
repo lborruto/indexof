@@ -1,0 +1,19 @@
+# gitleaks configuration: the default rules, plus the invented secrets the test suite uses.
+# Each exception names its path AND its exact value, so a real secret in the same file, or the
+# same value anywhere else, is still reported.
+title = "indexof"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Invented password of the integration test stack"
+condition = "AND"
+paths = ['''^tests/''']
+regexes = ['''^Test123pw$''']
+
+[[allowlists]]
+description = "Invented link key of the integration test stack"
+condition = "AND"
+paths = ['''^tests/''']
+regexes = ['''^0123456789abcdef0123456789abcdef$''']

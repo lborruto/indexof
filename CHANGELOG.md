@@ -1,0 +1,61 @@
+# Changelog
+
+What changes from one release to the next, in plain words. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
+[Semantic Versioning](https://semver.org/). A tag `vX.Y.Z` publishes the images `X.Y.Z`, `X.Y`
+and `latest`; the GitHub release takes its notes from that version's section below.
+
+## [Unreleased]
+
+The first release, 1.0.0: the file page of a private homelab, turned into a project anyone can
+run.
+
+### Added
+
+- **Login:** one shared password (`INDEXOF_PASSWORD`), a cookie that lasts 30 days, logout.
+- **The listing:** nginx's own "Index of /", unchanged in look, with a live filter, a Search
+  button (or Enter) to the search page, sort by name, date or size, pages of 100, checkboxes with
+  "zip selected", folder sizes filled in automatically and the free space.
+- **Search** (`/_search`): text, folder, files or folders, kind, maximum results; the results in
+  the listing's own format with date and size.
+- **Per line:** `[zip]` on folders, `[play]` / `[vlc]` on video and audio, `[view]` on pictures,
+  `[rename]` (rename or move) and `[delete]` in writable folders, never on a mounted folder
+  itself.
+- **Uploads:** several files, three at a time, a line each with %, time left and `[cancel]`,
+  `[cancel all]`, a warning before leaving mid-upload. An upload is finished by a rename from a
+  temp folder on the same disk; a cancelled one leaves nothing.
+- **An scp line** next to Upload with `[copy]` and `[copy destination]`, shown when
+  `INDEXOF_SCP` is set and only for folder paths of plain characters.
+- **Zips** streamed as they are made (nothing written on the server), stored, with random names,
+  without hidden files or symbolic links; names that look like options are kept as names.
+- **Player and viewer** (`/_play`): video, audio, pictures, the file as it is, never converted.
+  The audio track Chrome actually plays is shown first; Dolby and DTS tracks are marked "no sound
+  here". Another track goes through the browser's own switch when it has one, else through
+  `/_remux` (copy-only repackaging: fragmented MP4, Matroska for AC3, E-AC3 and DTS) with the
+  player's own play and seek line. Subtitles come from the file's text tracks (`/_sub`); image
+  subtitles are listed but disabled.
+- **Open in VLC:** `vlc://host:port/path?e=..&k=..` links signed with `INDEXOF_LINK_SECRET`
+  (that file only, GET and HEAD only, 12 hours), a `.m3u` playlist and "copy VLC link". The VLC
+  Link helpers for Mac (AppleScript app and installer, with a log) and Windows (PowerShell
+  installer, per user, no admin) take the allowed addresses as arguments.
+- **Any folders under `/data`:** mount what you like. A folder mounted `:ro` is browse-only; a
+  writable one allows uploads, new folders, rename, move and delete. A mounted folder itself is
+  never renamed, moved or deleted. The routes and the settings are generated at start.
+- **Settings instead of fixed values:** `INDEXOF_PASSWORD`, `INDEXOF_LINK_SECRET` (32
+  characters or more, never the password; the containers refuse to start without the two),
+  `INDEXOF_SCP`, `INDEXOF_BIND` (`127.0.0.1` by default), `INDEXOF_PORT` (`8099`), `PUID` /
+  `PGID`.
+- **Security in place:** dotfiles denied, symbolic links not followed, files served with
+  `Content-Security-Policy: sandbox` and `X-Content-Type-Options: nosniff`, the helper on an
+  internal-only network and never published, every CGI value cut down or checked to be a real
+  path under a mounted folder, no line breaks in names, numbers validated, container log limits.
+- **Images** `ghcr.io/lborruto/indexof` (nginx unprivileged) and
+  `ghcr.io/lborruto/indexof-helper` (Alpine, busybox httpd, zip, ffmpeg) for `linux/amd64` and
+  `linux/arm64`, with provenance and SBOM attestations; an example `compose.yaml` and
+  `.env.example`.
+- **Tests and CI:** `tests/lint.sh` (ShellCheck, `sh -n`, the pages' scripts, the Windows
+  installer), `tests/integration.sh` on generated demo data (`tests/make-demo.sh`), gitleaks
+  over the whole history, Trivy on both images and the Dockerfiles; Dependabot for the base
+  images and the actions.
+
+[Unreleased]: https://github.com/lborruto/indexof/commits/main
