@@ -29,7 +29,7 @@ if [ -n "$k" ]; then
   i=${k%%.*}; r=${k#"$i"}
   case "$i" in ''|*[!0-9]*) i= ;; esac
   case "$r" in ''|.[0-9]|.[0-9][0-9]|.[0-9][0-9][0-9]) ;; *) i= ;; esac
-  [ -n "$i" ] && [ ${#i} -le 6 ] || fail '400 Bad Request' 'k: seconds, like 90 or 90.5'
+  if [ -z "$i" ] || [ ${#i} -gt 6 ]; then fail '400 Bad Request' 'k: seconds, like 90 or 90.5'; fi
   printf 'Content-Type: text/plain\r\n\r\n'
   # The first video packet read after seeking to k is the keyframe a seek to k lands on. Its
   # time from the file's start (as ffmpeg's -ss counts, and the subtitles from /_sub), to the

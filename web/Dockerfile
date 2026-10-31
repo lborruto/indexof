@@ -11,5 +11,6 @@ COPY site.conf.template /etc/nginx/templates/site.conf.template
 COPY pages/ /etc/nginx/pages/
 COPY --chmod=755 50-indexof-mounts.sh /docker-entrypoint.d/50-indexof-mounts.sh
 USER root
-RUN mkdir -p /data
+# The base image's packages brought up to date (fixed CVEs; checked by Trivy in CI).
+RUN apk upgrade --no-cache && mkdir -p /data
 USER 101

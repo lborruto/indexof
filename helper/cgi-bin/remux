@@ -28,7 +28,7 @@ case "$a" in [0-9]|[0-9][0-9]) ;; *) fail '400 Bad Request' 'a: the audio track,
 i=${t%%.*}; r=${t#"$i"}
 case "$i" in ''|*[!0-9]*) i= ;; esac
 case "$r" in ''|.[0-9]|.[0-9][0-9]|.[0-9][0-9][0-9]) ;; *) i= ;; esac
-[ -n "$i" ] && [ ${#i} -le 6 ] || fail '400 Bad Request' 't: seconds, like 90 or 90.5'
+if [ -z "$i" ] || [ ${#i} -gt 6 ]; then fail '400 Bad Request' 't: seconds, like 90 or 90.5'; fi
 # The tracks must be there (ffmpeg would send nothing otherwise); V: video that is not a cover.
 v=$(ffprobe -v error -select_streams V:0 -show_entries stream=codec_name,has_b_frames -of csv=p=0 "$d" 2>/dev/null | head -n 1)
 vc=${v%%,*}; bf=${v#*,}
