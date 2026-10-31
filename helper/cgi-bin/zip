@@ -1,0 +1,34 @@
+#!/bin/sh
+# A zip of the paths given as p= (a folder's [zip] link, or the selection's form, posted):
+# each must be a real folder or file in a mounted folder under /data, not a hidden one (lib.sh's
+# rules). Streamed as it is made: nothing is written on the server, so nothing is left behind.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
+nl=$(printf '\nx'); nl=${nl%x} # a line break: names with one are left out (the list is one per line)
+args=$QUERY_STRING
+if [ "$REQUEST_METHOD" = POST ] && [ -n "$CONTENT_LENGTH" ]; then args="$args&$(head -c "$CONTENT_LENGTH")"; fi
+list=$(set -f; IFS='&'; for kv in $args; do
+  case "$kv" in (p=*) allowed_path "$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')")" ;; esac
+done | sort -u)
+if [ -z "$list" ]; then printf 'Content-Type: text/plain\r\n\r\nnothing to zip\n'; exit 0; fi
+
+# Paths inside the zip: from the folder they all share, or from /data when they are in
+# different ones (a search's results).
+parents=$(printf '%s\n' "$list" | while IFS= read -r d; do dirname "$d"; done | sort -u)
+if [ "$(printf '%s\n' "$parents" | wc -l)" -eq 1 ]; then base=$parents; else base=/data; fi
+
+# A random name for the download (e.g. 4hd8x8ddz.zip).
+name=$(tr -dc 'a-z0-9' </dev/urandom | head -c 9)
+printf 'Content-Type: application/zip\r\nContent-Disposition: attachment; filename="%s.zip"\r\n\r\n' "$name"
+
+# Everything stored as it is (-0): about ten times faster than compressing, so a zip comes down
+# as fast as the files themselves (most of what is here, videos above all, does not compress);
+# zip switches to Zip64 by itself for files over 4 GB.
+cd "$base" || exit 0
+# The list of what goes in, given to zip on its input: every file and folder under the chosen
+# ones, each as ./name (so a name like an option, -TT=... say, stays a name), without hidden
+# ones, without symbolic links (which may point outside; zip cannot store them as links into a
+# download) and without names holding a line break (zip reads the list one line per name).
+printf '%s\n' "$list" | while IFS= read -r d; do
+  find "./${d#"$base"/}" \( -name '.*' -o -name "*$nl*" \) -prune -o ! -type l -print
+done | exec zip -q -0 -nw -@ - # -nw: the names are names, never patterns (a file called * stays one file)

@@ -1,0 +1,22 @@
+#!/bin/sh
+# ?f=: a temporary link to a file (a path of the page, /folder/..., as a real file in a mounted
+# folder under /data, not a hidden one), for a player that cannot log in the way the page does
+# (VLC): "e=EXPIRES&k=SIGNATURE" to add to the file's address. nginx's secure_link checks it
+# (see site.conf.template): that file only, reading only, for 12 hours. The signature is
+# base64url(md5("EXPIRES/path SECRET")), with INDEXOF_LINK_SECRET, a random key used for
+# nothing else: a link says nothing about the page's password.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
+f=
+set -f; IFS='&'
+for kv in $QUERY_STRING; do
+  case "$kv" in f=*) f=$(httpd -d "$(printf '%s' "${kv#f=}" | tr '+' ' ')") ;; esac
+done
+unset IFS; set +f
+fail() { printf 'HTTP/1.1 %s\r\nContent-Type: text/plain\r\n\r\n%s\n' "$1" "$2"; exit 0; }
+[ ${#INDEXOF_LINK_SECRET} -ge 32 ] || fail '500 Internal Server Error' 'no INDEXOF_LINK_SECRET (32 characters or more)'
+d=$(allowed_path "$f") || d=
+[ -f "$d" ] || fail '404 Not Found' 'no such file'
+e=$(( $(date +%s) + 12 * 3600 ))
+k=$(printf '%s%s %s' "$e" "${d#/data}" "$INDEXOF_LINK_SECRET" | md5sum | cut -c1-32 | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
+printf 'Content-Type: text/plain\r\nCache-Control: no-store\r\n\r\ne=%s&k=%s\n' "$e" "$k"

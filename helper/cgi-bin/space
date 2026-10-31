@@ -1,0 +1,12 @@
+#!/bin/sh
+# ?p=: the free space of the disk holding a path of the page (/folder/..., in a mounted folder
+# under /data: lib.sh's rules), as "X free / Y"; nothing for any other path.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
+printf 'Content-Type: text/plain\r\n\r\n'
+p=; set -f; IFS='&'
+for kv in $QUERY_STRING; do case "$kv" in p=*) p=$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')") ;; esac; done
+unset IFS; set +f
+d=$(allowed_path "$p") || exit 0
+# (-P: one line per disk, however long its name)
+df -hP "$d" | awk 'NR == 2 { print $4 " free / " $2 }'

@@ -1,0 +1,12 @@
+#!/bin/sh
+# ?p=: the size of a path of the page (/folder/...), as the real folder or file in a mounted
+# folder under /data, not a hidden one (lib.sh's rules); empty otherwise.
+# shellcheck source=helper/cgi-bin/lib.sh
+. "$(dirname "$0")/lib.sh"
+printf 'Content-Type: text/plain
+
+'
+p=; set -f; IFS='&'
+for kv in $QUERY_STRING; do case "$kv" in p=*) p=$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')") ;; esac; done
+unset IFS; set +f
+d=$(allowed_path "$p") && du -sh "$d" 2>/dev/null | cut -f1

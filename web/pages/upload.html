@@ -1,0 +1,254 @@
+<pre>
+<span id="w" hidden><input type="file" id="f" multiple> <button onclick="up()">Upload</button>  <button onclick="mk()">New folder</button><span id="sl">  or: <input id="scp" readonly size="70"> <button id="cp">copy</button> <button id="cd" title="type scp, drag your files onto the terminal (their full paths appear), paste this">copy destination</button></span></span>  <a href="/_login" onclick="document.cookie = 'session=; path=/; max-age=0'">Logout</a>  <span id="d"></span><span id="s" style="display: block"></span>
+</pre><hr>
+<script>
+const msg = t => { document.getElementById('s').textContent = t ? '\n' + t : ''; }; // (a blank line above it)
+const enc = p => p.split('/').map(encodeURIComponent).join('/');
+const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexOf(z.slice(-1)) + 1);
+// The folders mounted under /data, each read-only or writable, and the scp destination when one
+// is set: /_settings, written when the server starts. A path can be changed when its folder is
+// writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
+let settings = { mounts: {}, scp: null };
+const mountOf = p => p.split('/')[1] || '', writable = p => { const m = mountOf(p); return m !== '' && settings.mounts[m] === 'rw' && p.replace(/\/$/, '') !== '/' + m; };
+const searching = location.pathname === '/_search';
+let here = '/'; try { here = decodeURIComponent(location.pathname); } catch (e) {}
+fetch('/_space?p=' + encodeURIComponent(here), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { document.getElementById('d').textContent = t.trim(); });
+fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(s => {
+  if (s && s.mounts) settings = s;
+  const w = document.getElementById('w');
+  if (searching) w.remove();
+  else if (!writable(here)) { w.textContent = 'read-only folder'; w.hidden = false; }
+  else { w.hidden = false; scpLine(); }
+  actions();
+});
+// The same upload from a terminal: scp into this folder, as its path under /data (the folders
+// are mounted there), to the destination from the settings (user@host). Only for folder paths of
+// plain characters: an older scp hands the remote path to the server's shell, where a space, a
+// quote or $(...) would mean something else.
+function scpLine() {
+  if (!settings.scp) { document.getElementById('sl').remove(); return; }
+  const quote = t => "'" + t.replace(/'/g, "'\\''") + "'", scp = document.getElementById('scp'), pick = document.getElementById('f');
+  const folder = '/data' + here, dest = settings.scp + ':' + folder;
+  const plain = /^[\p{L}\p{N}\/._@+-]+$/u.test(folder);
+  const fill = () => {
+    if (!plain) { scp.value = '(no scp here: the folder name has spaces or symbols; use Upload)'; return; }
+    const names = [...pick.files].map(f => quote(f.name)).join(' ');
+    scp.value = 'scp ' + (names || '<your files>') + ' ' + dest;
+  };
+  pick.addEventListener('change', fill); fill();
+  // (navigator.clipboard needs https; selecting and copying works on http too.)
+  const copy = (text, note) => { const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); msg(note); };
+  document.getElementById('cp').onclick = () => copy(scp.value, 'scp command copied: run it from the folder the files are in');
+  // A page never learns where a chosen file is on the computer, so for a command that works from
+  // anywhere: type scp, drag the files onto the terminal (it writes their full paths), paste this.
+  document.getElementById('cd').onclick = () => plain ? copy(dest, 'destination copied: type scp, drag your files onto the terminal, paste') : msg('no scp here: the folder name has spaces or symbols');
+}
+// The listing (a folder's, or the search's results): each line in a span of its own, to filter, sort and page.
+const list = document.getElementById('list') || (searching ? null : document.querySelector('pre')), rows = [];
+if (list) [...list.querySelectorAll('a')].forEach(a => {
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  if (a.getAttribute('href') === '../') { cb.style.visibility = 'hidden'; a.before(cb, ' '); return; }
+  const t = a.nextSibling, row = document.createElement('span');
+  a.before(row); row.append(cb, ' ', a); if (t && t.nodeType === 3) row.append(t);
+  row.link = a; row.box = cb;
+  cb.onchange = count;
+  const info = t && t.nodeType === 3 ? t.textContent : '';
+  // The size column in a span of its own (a folder's size is filled in once measured).
+  const m = info.match(/^([\s\S]*?)(\s*\S+)(\s*)$/);
+  if (m) { t.textContent = m[1]; row.sz = document.createElement('span'); row.sz.textContent = m[2]; row.szLen = m[2].length; t.after(row.sz, m[3]); }
+  const d = info.match(/(\d\d)-(\w\w\w)-(\d{4}) (\d\d):(\d\d)/);
+  row.name = a.textContent.toLowerCase();
+  row.path = decodeURIComponent(new URL(a.getAttribute('href'), location.href).pathname);
+  row.folder = row.path.endsWith('/');
+  row.date = d ? Date.parse(d[2] + ' ' + d[1] + ' ' + d[3] + ' ' + d[4] + ':' + d[5]) : 0;
+  row.size = bytes(info.trim().split(/\s+/).pop() || '-');
+  rows.push(row);
+});
+// Above it: the search (a folder: this list as you type; Enter or Search: the search page), sort, pages of 100.
+const PAGE = 100, bar = document.createElement('pre');
+bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
+if (list) list.before(bar);
+const q = document.getElementById('q');
+let page = 0, shown = rows, key = '', dir = 1;
+function show() {
+  const f = q ? q.value.trim().toLowerCase() : '';
+  shown = rows.filter(r => r.name.indexOf(f) !== -1);
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  page = Math.min(page, pages - 1);
+  rows.forEach(r => { r.style.display = 'none'; });
+  shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.style.display = ''; });
+  const max = list.dataset.max ? +list.dataset.max : 0;
+  document.getElementById('n').textContent = '(' + shown.length + (searching ? ' found' + (rows.length >= max ? ', the first ' + max : '') : f ? ' matching' : ' items') + ')';
+  document.getElementById('pg').textContent = 'page ' + (page + 1) + '/' + pages;
+  measure(shown.slice(page * PAGE, page * PAGE + PAGE));
+}
+// Folder sizes, measured for the lines shown, three at a time.
+const queue = [];
+let measuring = 0;
+function measure(list) {
+  list.forEach(r => { if (r.folder && r.sz && !r.sized) { r.sized = true; queue.push(r); } });
+  while (measuring < 3 && queue.length) {
+    const r = queue.shift(), put = v => { r.sz.textContent = (' ' + v).padStart(r.szLen); };
+    measuring++; put('...');
+    fetch('/_size?p=' + encodeURIComponent(r.path), { cache: 'no-store' }).then(x => x.ok ? x.text() : '').then(z => {
+      z = z.trim(); put(z || '?'); if (z) r.size = bytes(z);
+    }).catch(() => put('?')).finally(() => { measuring--; measure([]); });
+  }
+}
+// The selection: ticked lines, downloaded as one zip (posted: a long selection would not fit in a link).
+function count() {
+  const n = rows.filter(r => r.box.checked).length;
+  document.getElementById('sc').textContent = n ? n + ' selected' : '';
+}
+function zipSelected() {
+  const paths = rows.filter(r => r.box.checked).map(r => r.path);
+  if (!paths.length) { msg('tick some lines first'); return; }
+  const f = document.createElement('form');
+  f.method = 'post'; f.action = '/_zip';
+  paths.forEach(p => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'p'; i.value = p; f.append(i); });
+  document.body.append(f); f.submit(); f.remove();
+}
+function go() {
+  const here = decodeURIComponent(location.pathname).split('/').filter(p => p).join('/');
+  location.href = '/_search?q=' + encodeURIComponent(q.value.trim()) + '&in=' + encodeURIComponent(here);
+}
+if (list) {
+  bar.querySelectorAll('[data-k]').forEach(s => s.onclick = e => {
+    e.preventDefault();
+    dir = key === s.dataset.k ? -dir : (s.dataset.k === 'name' ? 1 : -1);
+    key = s.dataset.k;
+    bar.querySelectorAll('[data-k]').forEach(o => { o.textContent = o.dataset.k + (o === s ? (dir > 0 ? ' ^' : ' v') : ''); });
+    rows.sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * dir).forEach(r => list.append(r));
+    page = 0; show();
+  });
+  document.getElementById('all').onchange = e => { shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.box.checked = e.target.checked; }); count(); };
+  document.getElementById('zs').onclick = e => { e.preventDefault(); zipSelected(); };
+  document.getElementById('pv').onclick = e => { e.preventDefault(); if (page > 0) { page--; show(); } };
+  document.getElementById('nx').onclick = e => { e.preventDefault(); if ((page + 1) * PAGE < shown.length) { page++; show(); } };
+  if (q) {
+    q.oninput = () => { page = 0; show(); };
+    q.onkeydown = e => { if (e.key === 'Enter') go(); };
+    document.getElementById('go').onclick = go;
+  }
+  show();
+}
+// At the end of each line (once the settings are known): [zip] for folders, [play] [vlc] for
+// videos and sound, [view] for pictures, [rename] [delete] in a writable folder (never the
+// folder itself).
+const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i;
+const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
+function actions() {
+  rows.forEach(row => {
+    const acts = [];
+    const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
+    const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); };
+    if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
+    else if (VIDEO.test(row.path) || AUDIO.test(row.path)) { link('play', '/_play?f=' + encodeURIComponent(row.path)); act('vlc', () => vlc(row.path)); }
+    else if (IMAGE.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
+    if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
+    if (!acts.length) return;
+    const end = row.lastChild;
+    if (end.nodeType === 3) end.textContent = end.textContent.replace(/\n$/, '');
+    acts.forEach(l => row.append(' ', l));
+    row.append('\n');
+  });
+}
+// VLC (it plays what a browser cannot: AC3, DTS, any audio track): vlc:// with a temporary link to
+// the file (/_vlc: that file only, reading only, 12 hours), which the VLC Link helper
+// (vlc-link/) hands to VLC; the player page also has the same link as a playlist.
+function vlc(path) {
+  fetch('/_vlc?f=' + encodeURIComponent(path), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
+    if (!/^e=\d+&k=[\w-]+$/.test(t.trim())) { msg('no VLC link (' + (t.trim() || 'server error') + ')'); return; }
+    // (Fully encoded, ( ) ' ! * too: the helper takes nothing a shell could read otherwise.)
+    // (vlc://host:port/path, without http: Chrome rewrites vlc://http://... as vlc://http//...)
+    location.href = 'vlc://' + location.host + (p => p.split('/').map(x => encodeURIComponent(x).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())).join('/'))(path) + '?' + t.trim();
+    msg('Opening VLC… (nothing happens? this computer needs the VLC Link helper; or [play], then "playlist")');
+  });
+}
+async function del(row) {
+  if (!confirm('Delete ' + row.path + (row.folder ? ' and everything in it' : '') + '?')) return;
+  const r = await fetch(enc(row.path), { method: 'DELETE' });
+  if (r.ok) location.reload(); else msg(row.path + ': delete failed (' + r.status + ')');
+}
+// Rename, or move (change the folders in the path; missing ones are made), inside its folder.
+async function ren(row) {
+  const from = row.path.replace(/\/$/, ''), m = mountOf(row.path);
+  let to = prompt('Rename or move (inside /' + m + '/) to:', from);
+  if (!to || to === from) return;
+  to = '/' + to.split('/').filter(p => p && p !== '.' && p !== '..').join('/');
+  if (mountOf(to) !== m || !writable(to)) { msg('stays inside /' + m + '/'); return; }
+  const parts = to.split('/');
+  for (let i = 3; i < parts.length; i++) await fetch(enc(parts.slice(0, i).join('/')) + '/', { method: 'MKCOL' });
+  const slash = row.folder ? '/' : '';
+  const r = await fetch(enc(from) + slash, { method: 'MOVE', headers: { Destination: location.origin + enc(to) + slash, Overwrite: 'F' } });
+  if (r.ok) location.reload(); else msg(from + ': ' + (r.status === 412 ? to + ' exists already' : 'rename failed (' + r.status + ')'));
+}
+// Uploads: a line for each file (size, how far along, time left, [cancel]), three at a time, in
+// one queue however many times Upload is pressed.
+function time(s) { s = Math.round(s); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm'; }
+function human(n) { const u = ['', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + u[i]; }
+const jobs = [];
+window.addEventListener('beforeunload', e => { if (jobs.some(j => !j.over)) { e.preventDefault(); e.returnValue = ''; } });
+function total() {
+  const n = k => jobs.filter(j => j.state === k).length;
+  document.getElementById('ut').textContent = n('sending') + ' uploading, ' + n('queued') + ' waiting, ' + n('done') + ' done' + (n('failed') ? ', ' + n('failed') + ' failed' : '') + (n('cancelled') ? ', ' + n('cancelled') + ' cancelled' : '');
+}
+function end(j, state, text) {
+  if (j.over) return;
+  j.over = true; j.state = state; j.st.textContent = text; j.cx.remove();
+  total(); next();
+  // All finished and something arrived: show it in the listing.
+  if (jobs.every(x => x.over) && jobs.some(x => x.state === 'done')) setTimeout(() => { if (jobs.every(x => x.over)) location.reload(); }, 1500);
+}
+function cancel(j) { if (j.over) return; if (j.xhr) j.xhr.abort(); else end(j, 'cancelled', 'cancelled'); }
+function send(j) {
+  const x = j.xhr = new XMLHttpRequest(), t0 = Date.now();
+  j.state = 'sending'; j.st.textContent = '0%'; total();
+  x.open('PUT', j.dest + encodeURIComponent(j.file.name));
+  x.upload.onprogress = e => {
+    if (!e.lengthComputable || j.over) return;
+    const s = (Date.now() - t0) / 1000, left = e.loaded ? s * (e.total - e.loaded) / e.loaded : 0;
+    j.st.textContent = Math.floor(e.loaded * 100 / e.total) + '%' + (e.loaded === e.total ? ', finishing' : s > 1 ? ', ' + time(left) + ' remaining' : '');
+  };
+  x.onload = () => x.status >= 200 && x.status < 300 ? end(j, 'done', 'done in ' + time((Date.now() - t0) / 1000)) : end(j, 'failed', 'failed (' + x.status + ')');
+  x.onerror = () => end(j, 'failed', 'failed (network error)');
+  x.onabort = () => end(j, 'cancelled', 'cancelled');
+  x.send(j.file);
+}
+function next() {
+  while (jobs.filter(j => j.state === 'sending').length < 3) {
+    const j = jobs.find(j => j.state === 'queued');
+    if (!j) break;
+    send(j);
+  }
+}
+function up() {
+  const input = document.getElementById('f'), files = [...input.files];
+  if (!files.length) { msg('choose files first'); return; }
+  input.value = '';
+  let box = document.getElementById('ups');
+  if (!box) {
+    box = document.createElement('pre'); box.id = 'ups';
+    box.innerHTML = '<span id="ut"></span>  <a href="#" id="ua">[cancel all]</a>\n';
+    document.getElementById('w').closest('pre').after(box);
+    document.getElementById('ua').onclick = e => { e.preventDefault(); jobs.forEach(cancel); };
+  }
+  files.forEach(file => {
+    const j = { file, dest: location.pathname, state: 'queued' }, name = document.createElement('span');
+    name.textContent = (file.name.length > 50 ? file.name.slice(0, 47) + '..>' : file.name).padEnd(51) + human(file.size).padStart(8) + '  ';
+    j.st = document.createElement('span'); j.st.textContent = 'queued';
+    j.cx = document.createElement('a'); j.cx.href = '#'; j.cx.textContent = '[cancel]';
+    j.cx.onclick = e => { e.preventDefault(); cancel(j); };
+    box.append(name, j.st, ' ', j.cx, '\n');
+    jobs.push(j);
+  });
+  total(); next();
+}
+async function mk() {
+  const n = prompt('Folder name');
+  if (!n) return;
+  const r = await fetch(location.pathname + encodeURIComponent(n) + '/', { method: 'MKCOL' });
+  if (r.ok) location.reload(); else msg('failed (' + r.status + ')');
+}
+</script>

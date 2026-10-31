@@ -1,0 +1,115 @@
+# The page's routes. A template: the image's entrypoint fills in INDEXOF_PASSWORD,
+# INDEXOF_LINK_SECRET and NGINX_LOCAL_RESOLVERS (only variables set in the container's
+# environment; nginx's own $variables are left alone). The folders mounted under /data get
+# their routes from /tmp/mounts.conf, their settings in /tmp/settings.json and the home page's
+# links in /tmp/indexof-home/, all written at start by 50-indexof-mounts.sh.
+
+# Logged in (the cookie), or, for a file, a temporary link from /_vlc (for VLC, which cannot log
+# in): only reading (GET, HEAD), only that file, and only until it expires.
+map $cookie_session $indexof_cookie {
+    "${INDEXOF_PASSWORD}" 1;
+    default 0;
+}
+map "$indexof_cookie:$secure_link:$request_method" $indexof_ok {
+    ~^1: 1;
+    "0:1:GET" 1;
+    "0:1:HEAD" 1;
+    default 0;
+}
+
+server {
+    listen 8080;
+    root /data;
+    charset utf-8;
+    disable_symlinks on;
+    client_max_body_size 0;
+    absolute_redirect off; # 302 /_login on the port the browser used, not nginx's 8080
+    # The helper, looked up at each request (Docker's DNS, from the container's resolv.conf):
+    # found again after it is recreated, and nginx starts without it.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s;
+    set $helper http://indexof-helper:8081;
+    # The temporary links (/_vlc): a signature over the expiry time and the file's path.
+    secure_link $arg_k,$arg_e;
+    secure_link_md5 "$secure_link_expires$uri ${INDEXOF_LINK_SECRET}";
+    location = /_login { default_type text/html; alias /etc/nginx/pages/login.html; }
+    location = /_upload { internal; default_type text/html; alias /etc/nginx/pages/upload.html; }
+    # The pages' settings: the folders (read-only or writable) and the scp destination.
+    location = /_settings {
+        if ($indexof_cookie = 0) { return 403; }
+        default_type application/json;
+        alias /tmp/settings.json;
+        add_header Cache-Control no-store always;
+    }
+    location = /_space {
+        if ($indexof_cookie = 0) { return 403; }
+        proxy_pass $helper/cgi-bin/space$is_args$args;
+        add_header Cache-Control no-store always;
+    }
+    location = /_size {
+        if ($indexof_cookie = 0) { return 403; }
+        proxy_pass $helper/cgi-bin/size$is_args$args;
+        proxy_read_timeout 600s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_zip {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        proxy_pass $helper/cgi-bin/zip$is_args$args;
+        proxy_buffering off; # streamed as it is made
+        proxy_read_timeout 3600s;
+    }
+    location = /_vlc {
+        if ($indexof_cookie = 0) { return 403; }
+        proxy_pass $helper/cgi-bin/vlc$is_args$args;
+        add_header Cache-Control no-store always;
+    }
+    location = /_play {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        default_type text/html;
+        alias /etc/nginx/pages/play.html;
+    }
+    # The player's tracks: what is in the file, a subtitle track as WebVTT, and the file repackaged
+    # with another audio track (copied as it is, never converted: a browser plays only the default).
+    location = /_probe {
+        if ($indexof_cookie = 0) { return 403; }
+        proxy_pass $helper/cgi-bin/probe$is_args$args;
+        proxy_read_timeout 120s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_remux {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        proxy_pass $helper/cgi-bin/remux$is_args$args;
+        proxy_buffering off; # streamed as it is made
+        proxy_read_timeout 3600s;
+        add_header Cache-Control no-store always;
+    }
+    location = /_sub {
+        if ($indexof_cookie = 0) { return 403; }
+        proxy_pass $helper/cgi-bin/sub$is_args$args;
+        proxy_read_timeout 600s; # ffmpeg reads through the whole file for its subtitles
+        add_header Cache-Control no-store always;
+    }
+    location = /_search {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        proxy_pass $helper/cgi-bin/search$is_args$args;
+        proxy_read_timeout 120s;
+        add_after_body /_upload;
+        add_header Cache-Control no-store always;
+    }
+    location ~ /\. { deny all; }
+    # The mounted folders, one block each.
+    include /tmp/mounts.conf;
+    # The home page: the mounted folders (links to them, the refused ones left out).
+    location = / {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        root /tmp/indexof-home;
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        add_after_body /_upload;
+    }
+    # Anything else is not a mounted folder.
+    location / {
+        if ($indexof_cookie = 0) { return 302 /_login; }
+        return 404;
+    }
+}

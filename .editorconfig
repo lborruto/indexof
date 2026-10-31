@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{sh,html,conf,template}]
+indent_size = 4
+
+# The pages and the helper's CGI scripts came from the homelab written with two spaces: kept as they are.
+[web/pages/*.html]
+indent_size = 2
+
+[helper/cgi-bin/*]
+indent_size = 2
+
+[*.applescript]
+indent_style = tab
+
+[*.md]
+trim_trailing_whitespace = false
