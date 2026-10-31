@@ -8,7 +8,7 @@ const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexO
 // The folders mounted under /data, each read-only or writable, and the scp destination when one
 // is set: /_settings, written when the server starts. A path can be changed when its folder is
 // writable and it is not the folder itself (a mounted folder is never renamed, moved or deleted).
-let settings = { mounts: {}, scp: null };
+let settings = { mounts: {}, scp: null, scp_root: '/data' };
 const mountOf = p => p.split('/')[1] || '', writable = p => { const m = mountOf(p); return m !== '' && settings.mounts[m] === 'rw' && p.replace(/\/$/, '') !== '/' + m; };
 const searching = location.pathname === '/_search';
 let here = '/'; try { here = decodeURIComponent(location.pathname); } catch (e) {}
@@ -21,14 +21,16 @@ fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).cat
   else { w.hidden = false; scpLine(); }
   actions();
 });
-// The same upload from a terminal: scp into this folder, as its path under /data (the folders
-// are mounted there), to the destination from the settings (user@host). Only for folder paths of
-// plain characters: an older scp hands the remote path to the server's shell, where a space, a
-// quote or $(...) would mean something else.
+// The same upload from a terminal: scp into this folder, to the destination from the settings
+// (user@host) and the folder's path on that host: the root from the settings (where the mounted
+// folders are on it; /data, their place in the container, when none was given) and the page's
+// path. Only for folder paths of plain characters: an older scp hands the remote path to the
+// server's shell, where a space, a quote or $(...) would mean something else.
+const scpDest = (s, p) => s.scp + ':' + s.scp_root + p;
 function scpLine() {
   if (!settings.scp) { document.getElementById('sl').remove(); return; }
   const quote = t => "'" + t.replace(/'/g, "'\\''") + "'", scp = document.getElementById('scp'), pick = document.getElementById('f');
-  const folder = '/data' + here, dest = settings.scp + ':' + folder;
+  const folder = settings.scp_root + here, dest = scpDest(settings, here);
   const plain = /^[\p{L}\p{N}\/._@+-]+$/u.test(folder);
   const fill = () => {
     if (!plain) { scp.value = '(no scp here: the folder name has spaces or symbols; use Upload)'; return; }

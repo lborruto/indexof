@@ -20,31 +20,46 @@ PROJECT=indexof-test
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/indexof-test.XXXXXX") || exit 1
 BODY=$TMP/body
 DATA=$TMP/data
-compose() { docker compose -p "$PROJECT" -f "$TMP/compose.yaml" "$@"; }
+compose() { docker compose -p "$PROJECT" --env-file "$TMP/test.env" -f compose.yaml -f "$TMP/override.yaml" "$@"; }
 cleaned=
 cleanup() {
   [ -n "$cleaned" ] && return; cleaned=1
   echo "cleaning up"
-  [ -f "$TMP/compose.yaml" ] && compose down -v --remove-orphans >/dev/null 2>&1
+  [ -f "$TMP/override.yaml" ] && compose down -v --remove-orphans >/dev/null 2>&1
   rm -rf "$TMP"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 # The fixture: movies (mounted read-only), share and "My Stuff" (writable), plus _search and
-# .hidden, which the server must refuse.
+# .hidden, which the server must refuse; a dangling symbolic link and a plain file, refused too
+# (seen only when the whole fixture is scanned, below).
 mkdir -p "$DATA/movies/Sub Folder" "$DATA/share/pat" "$DATA/My Stuff" "$DATA/_search" "$DATA/.hidden" || exit 1
 head -c 200000 /dev/urandom >"$DATA/movies/film.mkv"
 echo 'a' >"$DATA/movies/Sub Folder/note.txt"
 echo 'hidden' >"$DATA/_search/secret.txt"
 echo 'hidden' >"$DATA/.hidden/secret.txt"
 : >"$DATA/share/pat/*"; : >"$DATA/share/pat/[ab].txt"; : >"$DATA/share/pat/a.txt"; : >"$DATA/share/pat/b.txt"
+ln -s /nowhere "$DATA/dangling"
+echo 'x' >"$DATA/file.txt"
 head -c 30000000 /dev/zero >"$TMP/big.bin"
 echo 'hello' >"$TMP/hello.txt"
+nl=$(printf '\nx'); nl=${nl%x}
 
-# The stack, as the current user (so it can write into the fixture): movies mounted read-only,
-# the other folders writable for the page; everything read-only for the helper.
-uid=$(id -u); gid=$(id -g)
+# The stack: the example compose.yaml as it is, with an .env of test values (the secrets, the
+# test port, the current user as PUID/PGID so it can write into the fixture, an scp
+# destination) and an override for the images built here and the fixture's folders: movies
+# mounted read-only, the other folders writable for the page; everything read-only for the helper.
+cat >"$TMP/test.env" <<EOF
+INDEXOF_PASSWORD=$PASSWORD
+INDEXOF_LINK_SECRET=$SECRET
+INDEXOF_BIND=127.0.0.1
+INDEXOF_PORT=$PORT
+PUID=$(id -u)
+PGID=$(id -g)
+INDEXOF_SCP=me@nas.example
+INDEXOF_SCP_ROOT=/srv/files/
+EOF
 web_volumes=; helper_volumes=
 for m in movies share 'My Stuff' _search .hidden; do
   ro=; [ "$m" = movies ] && ro=:ro
@@ -53,30 +68,46 @@ for m in movies share 'My Stuff' _search .hidden; do
   helper_volumes="$helper_volumes      - \"$DATA/$m:/data/$m:ro\"
 "
 done
-cat >"$TMP/compose.yaml" <<EOF
+cat >"$TMP/override.yaml" <<EOF
 services:
   indexof:
     image: indexof:test
-    user: "$uid:$gid"
-    environment:
-      INDEXOF_PASSWORD: $PASSWORD
-      INDEXOF_LINK_SECRET: $SECRET
-    volumes:
-$web_volumes    ports:
-      - 127.0.0.1:$PORT:8080
-    networks: [default, helper]
-    depends_on: [indexof-helper]
-  indexof-helper:
+    volumes: !override
+$web_volumes  indexof-helper:
     image: indexof-helper:test
-    user: "$uid:$gid"
-    environment:
-      INDEXOF_LINK_SECRET: $SECRET
-    volumes:
-$helper_volumes    networks: [helper]
-networks:
-  helper:
-    internal: true
+    volumes: !override
+$helper_volumes
 EOF
+
+# The example compose.yaml: it refuses to run without each of the two secrets, and with them
+# (nothing else set) it publishes the page on 127.0.0.1:8099 only, as 1000:1000, the helper on
+# the internal network alone, without the password, both with log limits.
+: >"$TMP/empty.env"
+if env -u INDEXOF_PASSWORD -u INDEXOF_LINK_SECRET docker compose --env-file "$TMP/empty.env" -f compose.yaml config >"$BODY" 2>&1; then fail 'compose.yaml ran without the secrets'; fi
+if grep -q INDEXOF_PASSWORD "$BODY"; then ok 'compose.yaml refuses to run without INDEXOF_PASSWORD'; else fail "compose.yaml without the secrets: $(cat "$BODY")"; fi
+printf 'INDEXOF_PASSWORD=%s\n' "$PASSWORD" >"$TMP/half.env"
+if env -u INDEXOF_LINK_SECRET docker compose --env-file "$TMP/half.env" -f compose.yaml config >"$BODY" 2>&1; then fail 'compose.yaml ran without INDEXOF_LINK_SECRET'; fi
+if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'compose.yaml refuses to run without INDEXOF_LINK_SECRET'; else fail "compose.yaml without the link secret: $(cat "$BODY")"; fi
+printf 'INDEXOF_PASSWORD=%s\nINDEXOF_LINK_SECRET=%s\n' "$PASSWORD" "$SECRET" >"$TMP/both.env"
+if env -u INDEXOF_BIND -u INDEXOF_PORT -u PUID -u PGID -u INDEXOF_SCP -u INDEXOF_SCP_ROOT docker compose --env-file "$TMP/both.env" -f compose.yaml config --format json >"$BODY" 2>"$TMP/err"; then ok 'compose.yaml runs with the two secrets'; else fail "compose.yaml with the two secrets: $(cat "$TMP/err")"; fi
+if python3 -I -c '
+import json, sys
+c = json.load(open(sys.argv[1])); s = c["services"]; w = s["indexof"]; h = s["indexof-helper"]
+def want(cond, what):
+    if not cond: sys.exit(what)
+want(w["image"].startswith("ghcr.io/lborruto/indexof:") and h["image"].startswith("ghcr.io/lborruto/indexof-helper:"), "images: %s, %s" % (w["image"], h["image"]))
+p = w["ports"]
+want(len(p) == 1 and p[0]["host_ip"] == "127.0.0.1" and p[0]["published"] == "8099" and p[0]["target"] == 8080, "page ports: %r" % p)
+want("ports" not in h, "the helper publishes a port: %r" % h.get("ports"))
+want(sorted(w["networks"]) == ["default", "indexof"] and list(h["networks"]) == ["indexof"], "networks: %r, %r" % (w["networks"], h["networks"]))
+want(c["networks"]["indexof"].get("internal") is True, "the indexof network is not internal")
+want(w["user"] == "1000:1000" and h["user"] == "1000:1000", "users: %s, %s" % (w["user"], h["user"]))
+want(w["environment"]["INDEXOF_PASSWORD"] == sys.argv[2] and w["environment"]["INDEXOF_LINK_SECRET"] == sys.argv[3], "the page misses a secret")
+want(h["environment"]["INDEXOF_LINK_SECRET"] == sys.argv[3] and "INDEXOF_PASSWORD" not in h["environment"], "the helper: the link secret only")
+for x in (w, h): want(x.get("logging", {}).get("options", {}).get("max-size") == "20m" and x["logging"]["options"].get("max-file") == "3", "log limits")
+want(any(v["target"] == "/data/share" and not v.get("read_only") for v in w["volumes"]), "no writable /data/share example")
+want(all(v.get("read_only") for v in h["volumes"]), "the helper has a writable mount")
+' "$BODY" "$PASSWORD" "$SECRET"; then ok 'compose.yaml: 127.0.0.1:8099, 1000:1000, helper internal only, log limits'; else fail "compose.yaml: $(python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1])); print(json.dumps(c["services"], indent=1)[:1500])' "$BODY")"; fi
 
 echo "building the images"
 docker build -q -t indexof:test web >/dev/null || fail 'docker build web'
@@ -92,6 +123,58 @@ if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=short in
 if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'refuses to start with a short INDEXOF_LINK_SECRET'; else fail "no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
 if docker run --rm indexof-helper:test >"$BODY" 2>&1; then fail 'helper started without INDEXOF_LINK_SECRET'; fi
 if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'helper refuses to start without INDEXOF_LINK_SECRET'; else fail "helper: no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
+
+# INDEXOF_SCP (the scp line's destination) must be user@host or host, INDEXOF_SCP_ROOT (the
+# folder on that host holding the mounted folders) an absolute path: anything scp, a shell or
+# the settings JSON could read otherwise stops the start, with a line naming the variable.
+refused_start() { # VARIABLE VALUE WHAT: the start refuses VARIABLE=VALUE, naming it
+  if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -e INDEXOF_SCP=me@nas.example -e "$1=$2" indexof:test nginx -t >"$BODY" 2>&1; then fail "started with $1 $3"; fi
+  if grep -q "$1" "$BODY"; then ok "refuses $1 $3"; else fail "$1 $3: no $1 in: $(cat "$BODY")"; fi
+}
+refused_start INDEXOF_SCP 'me@host x' 'with a space'
+refused_start INDEXOF_SCP "me@host'" 'with a quote'
+refused_start INDEXOF_SCP 'me@host"' 'with a double quote'
+refused_start INDEXOF_SCP 'me@ho\st' 'with a backslash'
+refused_start INDEXOF_SCP "$(printf 'me@host\001')" 'with a control character'
+refused_start INDEXOF_SCP "me@ho${nl}st" 'with a line break'
+refused_start INDEXOF_SCP '-x@host' 'starting with a dash (an option to scp)'
+refused_start INDEXOF_SCP 'me@-host' 'whose host starts with a dash'
+refused_start INDEXOF_SCP 'me@host:/srv' 'with a path (that is INDEXOF_SCP_ROOT)'
+refused_start INDEXOF_SCP 'a@b@c' 'with two @'
+refused_start INDEXOF_SCP '@host' 'with an empty user'
+refused_start INDEXOF_SCP 'me@' 'with an empty host'
+refused_start INDEXOF_SCP 'me@host;id' 'with a semicolon'
+# shellcheck disable=SC2016 # (the value stays as written: that is the point)
+refused_start INDEXOF_SCP 'me@$(id)' 'with $()'
+refused_start INDEXOF_SCP_ROOT 'srv/files' 'that is not absolute'
+refused_start INDEXOF_SCP_ROOT '/srv files' 'with a space'
+refused_start INDEXOF_SCP_ROOT '/srv"x' 'with a double quote'
+refused_start INDEXOF_SCP_ROOT "/srv'x" 'with a quote'
+refused_start INDEXOF_SCP_ROOT '/srv\x' 'with a backslash'
+# shellcheck disable=SC2016 # (as written)
+refused_start INDEXOF_SCP_ROOT '/srv$x' 'with a dollar'
+refused_start INDEXOF_SCP_ROOT '/srv`x' 'with a backtick'
+refused_start INDEXOF_SCP_ROOT "$(printf '/srv\001')" 'with a control character'
+refused_start INDEXOF_SCP_ROOT "/srv${nl}x" 'with a line break'
+# What the settings say, from the start script alone: the destination as given, null without
+# one; the root as given (a trailing slash dropped, / itself empty), /data without one.
+expect_settings() { # WANT [docker run options...]
+  want=$1; shift
+  got=$(docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET "$@" indexof:test sh -c '/docker-entrypoint.d/50-indexof-mounts.sh >/dev/null 2>&1 && cat /tmp/settings.json')
+  if [ "$got" = "$want" ]; then ok "settings (${*:-nothing set}): $got"; else fail "settings (${*:-nothing set}): $got, wanted $want"; fi
+}
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data"}'
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data"}' -e INDEXOF_SCP= -e INDEXOF_SCP_ROOT=
+expect_settings '{"mounts":{},"scp":"me@nas.example","scp_root":"/data"}' -e INDEXOF_SCP=me@nas.example
+expect_settings '{"mounts":{},"scp":"nas","scp_root":"/srv/files"}' -e INDEXOF_SCP=nas -e INDEXOF_SCP_ROOT=/srv/files/
+expect_settings '{"mounts":{},"scp":"me.x_y-z@h-1.example","scp_root":""}' -e INDEXOF_SCP=me.x_y-z@h-1.example -e INDEXOF_SCP_ROOT=/
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/srv"}' -e INDEXOF_SCP_ROOT=/srv
+
+# Every entry under /data is looked at: a dangling symbolic link and a plain file are refused
+# with a line each, never skipped in silence (the whole fixture mounted, read-only).
+docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA:/data:ro" indexof:test sh -c '/docker-entrypoint.d/50-indexof-mounts.sh' >"$BODY" 2>&1 || fail "start script on the whole fixture: $(cat "$BODY")"
+if grep -q 'refused mount /data/dangling: it is a symbolic link' "$BODY"; then ok 'start log: refused mount dangling (a symbolic link to nowhere)'; else fail "no 'refused mount' for the dangling link in: $(cat "$BODY")"; fi
+if grep -q 'refused mount /data/file.txt: it is not a folder' "$BODY"; then ok 'start log: refused mount file.txt (not a folder)'; else fail "no 'refused mount' for file.txt in: $(cat "$BODY")"; fi
 
 echo "starting the stack"
 compose up -d >/dev/null 2>&1 || { compose logs --no-color; fail 'compose up'; }
@@ -114,12 +197,14 @@ expect_status -n GET /_settings 403
 expect_status -n GET '/_size?p=/movies/' 403
 expect_status -n GET /movies/film.mkv 302
 
-# /_settings: the mounts, read-only or writable; the refused ones absent; no scp here.
+# /_settings: the mounts, read-only or writable; the refused ones absent; the scp destination
+# and root from the .env (the root's trailing slash dropped).
 expect_status GET /_settings 200
 expect_body /_settings '"movies":"ro"'
 expect_body /_settings '"share":"rw"'
 expect_body /_settings '"My Stuff":"rw"'
-expect_body /_settings '"scp":null'
+expect_body /_settings '"scp":"me@nas.example"'
+expect_body /_settings '"scp_root":"/srv/files"'
 expect_no_body /_settings '_search'
 expect_no_body /_settings '.hidden'
 expect_header /_settings 'Content-Type: application/json'
@@ -301,5 +386,19 @@ if node -e '
   const want = { "/share/x": true, "/share/a/b/": true, "/My Stuff/x.txt": true, "/share/": false, "/share": false, "/movies/x": false, "/": false, "/_search": false, "/nowhere/x": false };
   for (const p in want) if (writable(p) !== want[p]) { console.error("writable(" + JSON.stringify(p) + ") = " + writable(p)); process.exit(1); }
 ' "$BODY"; then ok 'writable(): rw folders only, never the folder itself'; else fail 'writable() in the page'; fi
+# The scp line's destination: the settings' destination, then the folder's path on that host
+# (the root from the settings, /data when none was given, and the page's path).
+if node -e '
+  const html = require("fs").readFileSync(process.argv[1], "utf8"), m = html.match(/^const scpDest = .*$/m);
+  if (!m) { console.error("no scpDest line in the page"); process.exit(1); }
+  const scpDest = new Function(m[0] + "\nreturn scpDest;")();
+  const want = [
+    [{ scp: "me@nas.example", scp_root: "/srv/files" }, "/share/", "me@nas.example:/srv/files/share/"],
+    [{ scp: "me@nas.example", scp_root: "/srv/files" }, "/share/sub/", "me@nas.example:/srv/files/share/sub/"],
+    [{ scp: "nas", scp_root: "/data" }, "/My Stuff/", "nas:/data/My Stuff/"],
+    [{ scp: "nas", scp_root: "" }, "/share/", "nas:/share/"],
+  ];
+  for (const [s, p, d] of want) if (scpDest(s, p) !== d) { console.error("scpDest(" + JSON.stringify(s) + ", " + JSON.stringify(p) + ") = " + scpDest(s, p)); process.exit(1); }
+' "$BODY"; then ok 'scpDest(): destination:root + path'; else fail 'scpDest() in the page'; fi
 
 echo 'integration: all checks passed'
