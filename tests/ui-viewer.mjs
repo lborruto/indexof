@@ -1,8 +1,8 @@
 // The viewer (/_play), checked in a real browser: [raw] [download] [folder], previous / next with
-// "n / N" and the arrow keys, a picture's line (pixels, size, and from Exif the date and the
-// camera), a subtitle file next to a video in the subtitle list, text shown as text (a page as its source, an old file in
-// Windows-1252, the first 1 MiB of a big one, no /_probe), a video resumed where it was left,
-// "play next" moving on at the end of a sound file, and the viewer on a phone. Uses the demo
+// "n / N" and the arrow keys, no line under a picture, a subtitle file next to a video in the
+// subtitle list, text shown as text (a page as its source, an old file in Windows-1252, the first
+// 1 MiB of a big one, no /_probe), a video resumed where it was left, "play next" moving on at
+// the end of a sound file, the version in the corner, and the viewer on a phone. Uses the demo
 // data's pictures/, music/ and movies/ (tests/make-demo.sh) and a folder of text files given
 // here. Drives a Chrome already running with --remote-debugging-port, over the DevTools protocol
 // (Node 24, nothing to install).
@@ -52,51 +52,26 @@ const state = () => ev(`(() => {
 let failed = 0;
 const check = (cond, what) => { console.log((cond ? 'ok    ' : 'FAIL  ') + 'viewer: ' + what); if (!cond) failed++; };
 
-// Pictures: the links, "1 / 3", the right arrow to the next one and round to the first.
-const pics = order(['Test Pattern.png', 'Gradient (2024).jpg', 'Beach Walk (2024).jpg']).map(n => '/pictures/' + n);
+// Pictures: the links, "1 / 2", the right arrow to the next one and round to the first.
+const pics = order(['Test Pattern.png', 'Gradient (2024).jpg']).map(n => '/pictures/' + n);
 await view(pics[0]);
 let s = await state();
 check(s.raw === base + enc(pics[0]) && s.get === s.raw && s.download === pics[0].split('/').pop() && s.up === '/pictures/', `${pics[0]}: [raw] [download] [folder] (${s.raw}, ${s.download}, ${s.up})`);
 check(s.rawTab === '_blank noopener' && s.getTab === '', `${pics[0]}: [raw] in a new tab, [download] in this one (${s.rawTab})`);
-check(s.pn.includes('1 / 3') && s.next, `${pics[0]}: "1 / 3" and [next →] (${JSON.stringify(s.pn)})`);
+check(s.pn.includes('1 / 2') && s.next, `${pics[0]}: "1 / 2" and [next →] (${JSON.stringify(s.pn)})`);
 check(!s.probe, `${pics[0]}: no /_probe for a picture`);
 await key('ArrowRight');
 s = await state();
-check(s.f === pics[1] && s.pn.includes('2 / 3'), `ArrowRight: ${pics[1]}, "2 / 3" (got ${s.f}, ${JSON.stringify(s.pn)})`);
-await key('ArrowRight');
+check(s.f === pics[1] && s.pn.includes('2 / 2'), `ArrowRight: ${pics[1]}, "2 / 2" (got ${s.f}, ${JSON.stringify(s.pn)})`);
 await key('ArrowRight');
 s = await state();
 check(s.f === pics[0], `ArrowRight on the last picture: round to ${pics[0]} (got ${s.f})`);
 
-// The picture's line: "W × H · size", and from a JPEG's Exif "taken YYYY-MM-DD HH:MM" and the
-// camera (Model naming the maker already: "Demo Camera X1", not "Demo Demo Camera X1").
-const line = async p => { await view(p); return ev(`document.getElementById('pi').hidden ? null : document.getElementById('pi').textContent`); };
-let l = await line('/pictures/Beach Walk (2024).jpg');
-check(/^1920 × 1080 · \d+(\.\d)? KB · taken 2024-07-14 18:32 · Demo Camera X1$/.test(l), `/pictures/Beach Walk (2024).jpg: pixels, size, date taken, camera (${JSON.stringify(l)})`);
-l = await line('/pictures/Test Pattern.png');
-check(/^1280 × 720 · \d+ KB$/.test(l), `/pictures/Test Pattern.png: pixels and size only (${JSON.stringify(l)})`);
-l = await line('/pictures/Gradient (2024).jpg');
-check(/^1280 × 720 · \d+(\.\d)? KB$/.test(l), `/pictures/Gradient (2024).jpg (no Exif): pixels and size only (${JSON.stringify(l)})`);
-// The page's Exif reader itself: little-endian ("II") too, and never an exception on cut or
-// damaged bytes (every length of the demo's segment, then random bytes changed).
-const ex = await ev(`(() => {
-  const jpeg = (le, make, model, date) => {
-    const b = [], u16 = v => le ? b.push(v & 255, v >> 8) : b.push(v >> 8, v & 255), u32 = v => le ? (u16(v & 0xffff), u16(v >>> 16)) : (u16(v >>> 16), u16(v & 0xffff));
-    const str = x => [...x].map(c => c.charCodeAt(0)).concat(0), pad = a => a.length % 2 ? a.concat(0) : a;
-    const mk = str(make), md = str(model), dt = str(date), o1 = 50, o2 = o1 + pad(mk).length, o3 = o2 + pad(md).length, o4 = o3 + 18;
-    b.push(...(le ? [0x49, 0x49] : [0x4d, 0x4d])); u16(42); u32(8);
-    u16(3); u16(0x010f); u16(2); u32(mk.length); u32(o1); u16(0x0110); u16(2); u32(md.length); u32(o2); u16(0x8769); u16(4); u32(1); u32(o3); u32(0);
-    b.push(...pad(mk), ...pad(md)); u16(1); u16(0x9003); u16(2); u32(dt.length); u32(o4); u32(0); b.push(...dt);
-    const app = [0x45, 0x78, 0x69, 0x66, 0, 0, ...b], n = app.length + 2;
-    return new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xe1, n >> 8, n & 255, ...app, 0xff, 0xda, 0, 2]);
-  };
-  const le = exif(jpeg(true, 'Maker', 'Phone 9', '2023:01:02 03:04:05').buffer), g = jpeg(false, 'A', 'B', '2024:01:01 00:00:00');
-  let bad = 0;
-  for (let i = 0; i <= g.length; i++) { try { exif(g.slice(0, i).buffer); } catch (e) { bad++; } }
-  for (let k = 0; k < 3000; k++) { const c = g.slice(); for (let j = 0; j < 4; j++) c[Math.floor(Math.random() * c.length)] = Math.random() * 256; try { exif(c.buffer); } catch (e) { bad++; } }
-  return { le, bad };
-})()`);
-check(ex.le.camera === 'Maker Phone 9' && ex.le.date === '2023-01-02 03:04' && ex.bad === 0, `Exif reader: little-endian read, no exception on cut or damaged bytes (${JSON.stringify(ex)})`);
+// No line under a picture (its details are gone): after it, the text view (hidden here). The
+// version in the corner, on the right, linking to the project (a test build, not a release).
+const under = await ev(`(() => { const im = document.getElementById('im'), n = im.nextElementSibling, v = document.getElementById('ver'); return { next: n && n.id, ver: v && v.textContent, href: v && v.getAttribute('href'), right: v && Math.round(innerWidth - v.getBoundingClientRect().right) }; })()`);
+check(under.next === 'tx' && !(await ev(`!!document.getElementById('pi')`)), `${pics[0]}: no line under the picture (${JSON.stringify(under.next)} after it)`);
+check(under.ver === 'indexof test' && under.href === 'https://github.com/lborruto/indexof' && under.right < 20, `${pics[0]}: "${under.ver}" in the bottom right corner, linking to ${under.href}`);
 
 // A subtitle file next to a video: in the list after the file's own tracks ("fr (file)" for
 // Short (2023).fr.srt), and chosen, a track of the player's with its cues.

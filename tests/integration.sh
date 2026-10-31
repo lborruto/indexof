@@ -136,7 +136,7 @@ want(all(v.get("read_only") for v in h["volumes"]), "the helper has a writable m
 ' "$BODY" "$PASSWORD" "$SECRET"; then ok 'compose.yaml: 127.0.0.1:8099, 1000:1000, helper internal only, log limits'; else fail "compose.yaml: $(python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1])); print(json.dumps(c["services"], indent=1)[:1500])' "$BODY")"; fi
 
 echo "building the images"
-docker build -q -t indexof:"$TAG" web >/dev/null || fail 'docker build web'
+docker build -q --build-arg INDEXOF_VERSION=test -t indexof:"$TAG" web >/dev/null || fail 'docker build web'
 docker build -q -t indexof-helper:"$TAG" helper >/dev/null || fail 'docker build helper'
 ok 'images built'
 
@@ -148,7 +148,7 @@ INDEXOF_HELPER_IMAGE=indexof-helper:"$TAG" sh tests/make-demo.sh "$DATA" >"$BODY
 expect_file "$MKV_FILE" 'demo data'
 expect_file "$DATA/movies/Amélie (2001)/L'Amour & #1?.mkv" 'demo data'
 expect_file "$DATA/movies/Short (2023).fr.srt" 'demo data'
-expect_file "$DATA/pictures/Beach Walk (2024).jpg" 'demo data'
+expect_file "$DATA/pictures/Gradient (2024).jpg" 'demo data'
 expect_file "$DATA/share/link-to-passwd" 'demo data'
 if [ -f "$DATA/share/a$nl/etc/passwd" ]; then ok 'demo data: share/a<line break>/etc/passwd is there'; else fail 'demo data: no share/a<line break>/etc/passwd'; fi
 many=$(find "$DATA/share/many" -type f | wc -l | tr -d ' ')
@@ -217,18 +217,23 @@ refused_start INDEXOF_SCP_ROOT '/srv`x' 'with a backtick'
 refused_start INDEXOF_SCP_ROOT "/srv$ctl" 'with a control character'
 refused_start INDEXOF_SCP_ROOT "/srv${nl}x" 'with a line break'
 # What the settings say, from the start script alone: the destination as given, null without
-# one; the root as given (a trailing slash dropped, / itself empty), /data without one.
+# one; the root as given (a trailing slash dropped, / itself empty), /data without one; the
+# version the image was built with (test here), one given at run time when it is plain, dev
+# when it is not.
 expect_settings() { # WANT [docker run options...]
   want=$1; shift
   got=$(docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET "$@" indexof:"$TAG" sh -c '/docker-entrypoint.d/50-indexof-mounts.sh >/dev/null 2>&1 && cat /tmp/settings.json')
   if [ "$got" = "$want" ]; then ok "settings (${*:-nothing set}): $got"; else fail "settings (${*:-nothing set}): $got, wanted $want"; fi
 }
-expect_settings '{"mounts":{},"scp":null,"scp_root":"/data"}'
-expect_settings '{"mounts":{},"scp":null,"scp_root":"/data"}' -e INDEXOF_SCP= -e INDEXOF_SCP_ROOT=
-expect_settings '{"mounts":{},"scp":"me@nas.example","scp_root":"/data"}' -e INDEXOF_SCP=me@nas.example
-expect_settings '{"mounts":{},"scp":"nas","scp_root":"/srv/files"}' -e INDEXOF_SCP=nas -e INDEXOF_SCP_ROOT=/srv/files/
-expect_settings '{"mounts":{},"scp":"me.x_y-z@h-1.example","scp_root":""}' -e INDEXOF_SCP=me.x_y-z@h-1.example -e INDEXOF_SCP_ROOT=/
-expect_settings '{"mounts":{},"scp":null,"scp_root":"/srv"}' -e INDEXOF_SCP_ROOT=/srv
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data","version":"test"}'
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data","version":"test"}' -e INDEXOF_SCP= -e INDEXOF_SCP_ROOT=
+expect_settings '{"mounts":{},"scp":"me@nas.example","scp_root":"/data","version":"test"}' -e INDEXOF_SCP=me@nas.example
+expect_settings '{"mounts":{},"scp":"nas","scp_root":"/srv/files","version":"test"}' -e INDEXOF_SCP=nas -e INDEXOF_SCP_ROOT=/srv/files/
+expect_settings '{"mounts":{},"scp":"me.x_y-z@h-1.example","scp_root":"","version":"test"}' -e INDEXOF_SCP=me.x_y-z@h-1.example -e INDEXOF_SCP_ROOT=/
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/srv","version":"test"}' -e INDEXOF_SCP_ROOT=/srv
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data","version":"1.4.1"}' -e INDEXOF_VERSION=1.4.1
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data","version":"dev"}' -e 'INDEXOF_VERSION=1.4.1","x":"y'
+expect_settings '{"mounts":{},"scp":null,"scp_root":"/data","version":"dev"}' -e 'INDEXOF_VERSION=<b>1</b>'
 
 # Every entry under /data is looked at: a dangling symbolic link and a plain file are refused
 # with a line each, never skipped in silence (the whole fixture mounted, read-only); the others
@@ -274,7 +279,6 @@ expect_status -n GET "/_sub?f=$MKV&s=0" 403
 expect_status -n GET '/_zip?p=/movies/' 302
 expect_status -n GET "/_remux?f=$MKV&a=1&t=0" 302
 expect_status -n GET '/_search?q=demo' 302
-expect_status -n GET /_recent 302
 expect_status -n GET "/_play?f=$MP4" 302
 expect_status -n PUT /share/x.txt 302 -T "$TMP/hello.txt"
 expect_no_file "$DATA/share/x.txt" 'upload without the cookie'
@@ -290,6 +294,7 @@ expect_body /_settings '"My Stuff":"rw"'
 expect_body /_settings "\"$ODD\":\"rw\""
 expect_body /_settings '"scp":"me@nas.example"'
 expect_body /_settings '"scp_root":"/srv/files"'
+expect_body /_settings '"version":"test"'
 expect_no_body /_settings '_search'
 expect_no_body /_settings '.hidden'
 expect_header /_settings 'Content-Type: application/json'
@@ -306,6 +311,7 @@ expect_status GET /_search/secret.txt 404
 expect_status GET /.hidden/ 403
 expect_status GET /.hidden/secret.txt 403
 expect_status GET /nowhere/ 404
+expect_status GET /_recent 404
 expect_status GET /nowhere.txt 404
 expect_status PUT /x.txt 404 -T "$TMP/hello.txt"
 expect_status MKCOL /new/ 404
@@ -567,8 +573,8 @@ expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/
 expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
-expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg' '/pictures/Beach%20Walk%20%282024%29.jpg'
-expect_search_count '/_search?kind=images' 3
+expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'
+expect_search_count '/_search?kind=images' 2
 expect_search '/_search?kind=subtitles' '/My%20Stuff/subs/Big%20Buck%20Test%20%282024%29.srt' '/movies/Short%20%282023%29.fr.srt'
 expect_search_count '/_search?kind=subtitles' 2
 expect_search_count '/_search?kind=video&in=music' 0
@@ -620,74 +626,35 @@ expect_body '/_search?q=Buck&in=movies' '<option value="">everywhere</option>'
 expect_body '/_search?q=Buck&in=movies' '<option value="movies" selected>movies</option>'
 rmdir "$DATA/share/c${ctl}d"
 
-# Inside text files (text=1): the viewer's text kinds, under 5 MB, holding the words as they
-# are (case aside), in the folder chosen, 200 at most; never a binary file, a big one, a hidden
-# one or a symbolic link; the words are a fixed string, never a pattern, an option or the shell's.
-N="$DATA/My Stuff/notes"
-mkdir -p "$N/cap" "$N/.dot" || exit 1
-printf 'A yellow zebrafish42 swims here.\n' >"$N/fish.txt"
-printf 'zebrafish42\n' >"$N/fish.bin"
-{ head -c 6000000 /dev/zero | tr '\0' 'x'; printf '\nzebrafish42\n'; } >"$N/huge.txt"
-printf 'zebrafish42\n' >"$N/.hidden.txt"
-printf 'zebrafish42\n' >"$N/.dot/in.txt"
-ln -s fish.txt "$N/link.txt"
-# shellcheck disable=SC2016 # (written as it is: the search must find it as it is)
-printf 'run $(id) and x*y, then -v\n' >"$N/shell.md"
-i=0; while [ $i -lt 250 ]; do echo 'capword' >"$N/cap/c-$i.log"; i=$((i + 1)); done
-expect_search '/_search?q=zebrafish42&text=1' '/My%20Stuff/notes/fish.txt'
-expect_search_count '/_search?q=zebrafish42&text=1' 1
-expect_search_count '/_search?q=ZebraFish42&text=1' 1
-expect_search_count '/_search?q=zebrafish42' 0
-expect_search_count '/_search?q=zebrafish42&text=1&in=share' 0
-expect_search_count '/_search?q=zebrafish42&text=1&in=My%20Stuff/notes' 1
-expect_body '/_search?q=zebrafish42&text=1' '<h1>Search: zebrafish42 (inside text files)</h1>'
-expect_body '/_search?q=zebrafish42&text=1' 'name="text" value="1" checked>'
-expect_no_body '/_search?q=zebrafish42' 'name="text" value="1" checked>'
-expect_search_count '/_search?q=capword&text=1' 200
-expect_body '/_search?q=capword&text=1&max=2000' '<pre id="list" data-max="200">'
-expect_search_count '/_search?q=capword&text=1&max=100' 100
-expect_no_body '/_search?q=z&text=1' '<pre id="list"'
-expect_search '/_search?q=%24(id)&text=1' '/My%20Stuff/notes/shell.md'
-expect_search_count '/_search?q=%24(id)&text=1' 1
-# shellcheck disable=SC2016 # (as written)
-expect_body '/_search?q=%24(id)&text=1' '<h1>Search: $(id) (inside text files)</h1>'
-expect_no_body '/_search?q=%24(id)&text=1' 'uid='
-expect_search_count '/_search?q=%60id%60&text=1' 0
-expect_search_count '/_search?q=x*y&text=1' 1
-expect_search_count '/_search?q=**&text=1' 0
-expect_search_count '/_search?q=-v&text=1' 1
-expect_search_count '/_search?q=--help&text=1' 0
-expect_body '/_search?q=%22%3E%3Cb%3E&text=1' '<h1>Search: &quot;&gt;&lt;b&gt; (inside text files)</h1>'
-expect_no_body '/_search?q=%3Cscript%3Ealert(1)&text=1' '<script>alert'
-expect_search_count '/_search?q=root:&text=1&in=../../etc' 0
-expect_search_inside '/_search?q=zebrafish42&text=1&in=../../etc' '/My%20Stuff/notes/'
+# The words inside files are not searched: no such box, and text=1 is a search by name.
+expect_no_body '/_search?q=Buck' 'name="text"'
+expect_search_count '/_search?q=notes&text=1&in=share' 1
 
-# Recent: the 50 files last modified, everywhere, newest first, in the search's listing format
-# (the line under it, the viewport tag, never stored); never a folder, a hidden name or a
-# symbolic link, however new. (Their times set a day ahead: newer than anything else here.)
-R="$DATA/share/recent"
-mkdir -p "$R/newdir" "$R/.dot" || exit 1
-echo older >"$R/older.txt"; echo newer >"$R/newer.txt"; echo x >"$R/.hidden.txt"; echo x >"$R/.dot/in.txt"
-ln -s newer.txt "$R/link.txt"
-python3 -I -c '
-import os, sys, time
-t = time.time() + 86400
-for p, ahead in zip(sys.argv[1::2], sys.argv[2::2]):
-    os.utime(p, (t + int(ahead), t + int(ahead)), follow_symlinks=False)
-' "$R/older.txt" 100 "$R/newer.txt" 200 "$R/.hidden.txt" 900 "$R/.dot/in.txt" 900 "$R/newdir" 900 "$R/link.txt" 900 "$N/fish.txt" 50 || fail 'setting the recent files times'
-expect_status GET /_recent 200
-expect_header /_recent 'Cache-Control: no-store'
-expect_body /_recent '<title>Recent</title>'
-expect_body /_recent '<h1>Recent</h1>'
-expect_body /_recent "$vp"
-expect_body /_recent 'Logout'
-expect_search_count /_recent 50
-got=$(search_hrefs /_recent | head -n 3 | tr '\n' ' ')
-if [ "$got" = '/share/recent/newer.txt /share/recent/older.txt /My%20Stuff/notes/fish.txt ' ]; then ok "GET /_recent: newest first ($got)"; else fail "GET /_recent: the first three are $got"; fi
-expect_no_search /_recent '.hidden' '.dot' 'link.txt' 'newdir' 'link-to-passwd'
-got=$(search_hrefs /_recent | grep -c '/$')
-if [ "$got" = 0 ]; then ok 'GET /_recent: no folder'; else fail "GET /_recent: $got folders"; fi
-rm -rf "$R" "$N"
+# The results line up as nginx's own listing does: each name (the path) cut to 50 characters,
+# 47 and "..>" when longer, counted in characters (an accent is one), so that every date starts
+# in the same column; the link and the title keep the whole path.
+A="$DATA/share/align"
+mkdir -p "$A/align-dir" "$A/Été 2024, a folder with a rather long name" || exit 1
+echo x >"$A/align-short.txt"; echo x >"$A/align-café.txt"
+echo x >"$A/Été 2024, a folder with a rather long name/align-long-file-name (final).txt"
+LONG='/share/align/%C3%89t%C3%A9%202024%2C%20a%20folder%20with%20a%20rather%20long%20name/align-long-file-name%20%28final%29.txt'
+expect_search '/_search?q=align-' "$LONG" '/share/align/align-short.txt' '/share/align/align-caf%C3%A9.txt' '/share/align/align-dir/'
+expect_body '/_search?q=align-' "title=\"/share/align/Été 2024, a folder with a rather long name/align-long-file-name (final).txt\">share/align/Été 2024, a folder with a rather lo..&gt;</a> "
+expect_body '/_search?q=align-' 'title="/share/align/align-dir/">share/align/align-dir/</a>'
+if python3 -I -c '
+import html, re, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+rows = body.split("<pre id=\"list\"", 1)[1].split("</pre>", 1)[0].split("\n")[1:]
+cols = set()
+for r in rows:
+    if not r: continue
+    t = html.unescape(re.sub(r"<[^>]*>", "", r))
+    m = re.search(r"\d\d-\w{3}-\d{4} \d\d:\d\d", t)
+    if not m or len(t) != 76: sys.exit("not a listing line: %r" % t)
+    cols.add(m.start())
+if cols != {51}: sys.exit("dates in columns %r" % sorted(cols))
+' "$BODY"; then ok 'search results: every date in column 51, every line 76 characters, as nginx lays them out'; else fail 'search results are not lined up'; fi
+rm -rf "$A"
 
 # The player's helpers on the demo mkv: what is in it (two audio tracks, the E-AC3 one the
 # default, two text subtitle tracks), its subtitles as WebVTT, and the file repackaged with its
@@ -922,6 +889,23 @@ if node -e '
   ];
   for (const [s, p, d] of want) if (scpDest(s, p) !== d) { console.error("scpDest(" + JSON.stringify(s) + ", " + JSON.stringify(p) + ") = " + scpDest(s, p)); process.exit(1); }
 ' "$BODY"; then ok 'scpDest(): destination:root + path'; else fail 'scpDest() in the page'; fi
+# [scp] on a file: the command that downloads it here, the whole remote path single-quoted;
+# none for a path a quote, a shell or scp's patterns would read otherwise, none without a destination.
+# shellcheck disable=SC2016 # (the page's code, with its $ and backticks as they are)
+if node -e '
+  const html = require("fs").readFileSync(process.argv[1], "utf8"), d = html.match(/^const scpDest = .*$/m), g = html.match(/^const scpGet = .*$/m);
+  if (!d || !g) { console.error("no scpDest or scpGet line in the page"); process.exit(1); }
+  const get = s => new Function("settings", d[0] + "\n" + g[0] + "\nreturn scpGet;")(s);
+  const scpGet = get({ scp: "me@nas.example", scp_root: "/srv/files" });
+  const want = {
+    "/share/Holiday clip.mkv": "scp \x27me@nas.example:/srv/files/share/Holiday clip.mkv\x27 .",
+    "/movies/Amélie (2001)/Café & #1 (x) 100%.mkv": "scp \x27me@nas.example:/srv/files/movies/Amélie (2001)/Café & #1 (x) 100%.mkv\x27 .",
+    "/movies/Amélie (2001)/L\x27Amour & #1?.mkv": "", "/share/a\"b": "", "/share/a\\b": "", "/share/a$(id)": "", "/share/a`id`": "",
+    "/share/a!b": "", "/share/*": "", "/share/[ab].txt": "", "/share/a\tb": "", "/share/a\nb": "",
+  };
+  for (const p in want) if (scpGet(p) !== want[p]) { console.error("scpGet(" + JSON.stringify(p) + ") = " + JSON.stringify(scpGet(p))); process.exit(1); }
+  if (get({ scp: null, scp_root: "/data" })("/share/x.txt")) { console.error("scpGet without a destination"); process.exit(1); }
+' "$BODY"; then ok "scpGet(): scp 'destination:root/path' ., none for quotes, shell and pattern characters, none without a destination"; else fail 'scpGet() in the page'; fi
 
 # The helper stopped: the page itself goes on (listing, downloads, the player's page, uploads);
 # what needs the helper answers with an error status within seconds, never hangs. Then it is
@@ -944,7 +928,6 @@ helper_down() { # PATH: an error status (5xx), within 5 seconds
 }
 helper_down '/_size?p=/movies/'
 helper_down '/_search?q=Buck'
-helper_down '/_recent'
 helper_down '/_space?p=/share/'
 helper_down '/_zip?p=/movies/'
 helper_down "/_probe?f=$MKV"
@@ -975,7 +958,7 @@ done
 docker logs "$PROJECT-ro" >"$BODY" 2>&1
 if grep -q 'writable' "$BODY"; then fail "read-only page: a 'writable' line in the start log: $(grep writable "$BODY")"; fi
 if [ "$(grep -c ': read-only$' "$BODY")" = 4 ]; then ok 'read-only page: the start log says read-only for the four folders'; else fail "read-only page: $(grep -c ': read-only$' "$BODY") read-only lines in the start log: $(grep indexof: "$BODY")"; fi
-expect_body /_settings "{\"mounts\":{\"$ODD\":\"ro\",\"My Stuff\":\"ro\",\"movies\":\"ro\",\"share\":\"ro\"},\"scp\":null,\"scp_root\":\"/data\"}"
+expect_body /_settings "{\"mounts\":{\"$ODD\":\"ro\",\"My Stuff\":\"ro\",\"movies\":\"ro\",\"share\":\"ro\"},\"scp\":null,\"scp_root\":\"/data\",\"version\":\"test\"}"
 expect_no_body /_settings '"rw"'
 expect_body / 'href="share/"'
 expect_body / 'href="Am%C3%A9lie%20%282001%29%20%26%20co%27s%20%231/"'
