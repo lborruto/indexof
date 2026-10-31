@@ -7,6 +7,40 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+indexof stays straight and simple: nginx's listing plus the few things you reach for every week.
+
+### Removed
+
+- Recent (the link in the bar and `/_recent`, which now answers 404 like any other unknown
+  path).
+- "inside text files" on the search page: the search finds names, as before 1.3.0 (`text=1` is
+  ignored).
+- The line under a picture in the viewer (its size, when it was taken, the camera).
+- `[link]` on each line: `[scp]` takes its place (below).
+
+### Changed
+
+- The scp line left the upload line: it is now a small grey reminder at the very bottom of a
+  writable folder, `scp: scp <your files> user@host:/srv/share/sub/ [copy]`, for the folder you
+  are in. None on the home page, the search, a read-only folder or a folder whose path has
+  spaces or symbols.
+- `[scp]` on every file (with `INDEXOF_SCP` set), read-only folders too: copies the command that
+  downloads it into the terminal's folder, `scp 'user@host:/srv/share/Holiday clip.mkv' .`, and
+  says it on the page. OpenSSH 9 or later (its scp needs no remote shell); left out for a name
+  holding a quote, a backslash, `$`, a backtick, `!`, `*`, `?`, `[` or a control character.
+
+### Added
+
+- The version in the corner of the listings and the viewer, small and grey: "indexof 1.4.1",
+  linking to its release ("indexof main" or "indexof dev" for other builds, linking to the
+  project). The image takes it as `INDEXOF_VERSION` (a build argument; the release sets it).
+
+### Fixed
+
+- The search's results line up like a folder's listing: a path longer than 50 characters is
+  cut as nginx cuts names ("..>", the whole path in the link and its tooltip), accents count as
+  one character, and the dates, sizes and links stay in their columns.
+
 ## [1.4.0] - 2026-10-31
 
 ### Added

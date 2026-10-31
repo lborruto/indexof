@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/listing.webp" alt="A documents folder with one file of each kind (a folder, a zip, a video, a disk image, notes, a PDF, a song, a GIF, a picture): nginx's Index of / with sizes and dates, [download] [raw] on every file, [vlc] on the video and the song, [zip] on the folder, [rename] [delete] on each line, the search and sort line above, and the upload line, free space and logout below" width="900">
+  <img src="docs/screenshots/listing.webp" alt="A documents folder with one file of each kind (a folder, a zip, a video, a disk image, notes, a PDF, a song, a GIF, a picture): nginx's Index of / with sizes and dates, [download] [raw] [scp] on every file, [vlc] on the video and the song, [zip] on the folder, [rename] [delete] on each line, the search and sort line above, the upload line, free space and logout below, and at the bottom the scp line for the folder and the version" width="900">
 </p>
 
 ## What it does
@@ -24,12 +24,12 @@
   folders you mount writable; drop files or whole folders on the page, or paste a screenshot, to
   upload them; tick lines to zip, move or
   delete them together. `[download]` on every file; `[raw]` opens it in the browser as the
-  server sends it. Prefer the terminal? Set
-  `INDEXOF_SCP` and the page shows the `scp` line for the folder you are in, ready to copy.
-- **Find things.** A live filter on the folder you are in, and Search across all of them: text,
-  folder, files or folders, kind (documents, pictures, videos, archives…), or the words inside
-  text files. **Recent** lists the 50 latest files of every folder. Sort by name, date or
-  size; pages of 100; each folder's size filled in as you look; the disk's free space (on the
+  server sends it. Prefer the terminal? Set `INDEXOF_SCP`: `[scp]` on each file copies the
+  command that downloads it, and a writable folder ends with a small `scp` line to upload into
+  it, ready to copy.
+- **Find things.** A live filter on the folder you are in, and Search across all of them by
+  name: text, folder, files or folders, kind (documents, pictures, videos, archives…), the
+  results lined up like a folder's. Sort by name, date or size; pages of 100; each folder's size filled in as you look; the disk's free space (on the
   home page too, once per disk).
 - **Zip and take away.** `[zip]` on any folder, or tick some lines and "zip selected". The
   archive is streamed as it is made, nothing is written on the server.
@@ -40,10 +40,9 @@
   they are, never converted, with the audio track and subtitles from inside the file. ← and →
   go through the folder, music and episodes play on into the next file, and a video starts again
   where you stopped. Notes, logs, subtitles and code are shown as text, a PDF opens in the
-  browser's reader, anything else (a zip, an ISO…) downloads. A picture shows its size, when it
-  was taken and the camera; subtitle files next to a video (`.srt`, `.vtt`, `.ass`) are offered
-  with its own. What the browser cannot play opens
-  in VLC with one click (`[vlc]`).
+  browser's reader, anything else (a zip, an ISO…) downloads. Subtitle files next to a video
+  (`.srt`, `.vtt`, `.ass`) are offered with its own. What the browser cannot play opens in VLC
+  with one click (`[vlc]`).
 - **On the phone too.** The same pages, fitted to its screen: each file in two lines, links big
   enough to tap.
 - **One password, no accounts.** Everyone in the household uses the same password; a login
@@ -205,7 +204,7 @@ variables and `docker compose down`.
 ## Playing media
 
 <p align="center">
-  <img src="docs/screenshots/player.webp" alt="The player on a video from the demo folder: [raw] [download] [folder] and play next above it, the audio track and subtitle selectors below, then open in VLC, playlist and copy VLC link" width="900">
+  <img src="docs/screenshots/player.webp" alt="The player on a video from the demo folder: [raw] [download] [folder] and play next above it, the audio track and subtitle selectors below, then open in VLC, playlist and copy VLC link, and the version in the corner" width="900">
 </p>
 
 indexof never converts anything: the browser gets the file as it is, so what plays is what your
@@ -265,8 +264,8 @@ default.
 | `INDEXOF_BIND` | `127.0.0.1` | The address the page is published on: this machine only by default. Your LAN address or `0.0.0.0` opens it to the network the machine is on. |
 | `INDEXOF_PORT` | `8099` | The port on that address. |
 | `PUID` / `PGID` | `1000` / `1000` | The user and group both containers run as: the owner of the folders you mount (`id -u`, `id -g`). |
-| `INDEXOF_SCP` | empty | Optional: the ssh destination of the machine the folders are on (`user@files.lan`, as you would type it after `scp`). Set, it shows an `scp` line next to Upload, with `[copy]` and `[copy destination]`; empty, no line. |
-| `INDEXOF_SCP_ROOT` | empty | Optional, for that line: the folder on that machine that holds the mounted folders under their names (`/srv` when `/srv/share` is mounted as `/data/share`), so the line says `/srv/share`; empty, it says the container's own `/data/share`. |
+| `INDEXOF_SCP` | empty | Optional: the ssh destination of the machine the folders are on (`user@files.lan`, as you would type it after `scp`). Set, each file has `[scp]` (copies `scp 'user@files.lan:/srv/share/a file.mkv' .`, OpenSSH 9 or later) and a writable folder ends with an `scp` line to upload into it, with `[copy]`; empty, neither. |
+| `INDEXOF_SCP_ROOT` | empty | Optional, for those commands: the folder on that machine that holds the mounted folders under their names (`/srv` when `/srv/share` is mounted as `/data/share`), so they say `/srv/share`; empty, they say the container's own `/data/share`. |
 
 The folders are the `volumes:` of the compose file ([Folders](#folders)); `restart`, the log
 limits and the internal network are set there too.
