@@ -460,7 +460,7 @@ expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
 expect_body '/_zip?p=/share/a%0A/' 'nothing to zip'
 expect_body '/_zip?p=/share/.uploads/' 'nothing to zip'
-expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 expect_zip '/_zip?p=/music/' 'music/' 'music/Demo Song.mp3' 'music/Démo (lossless).flac'
 curl -s -o "$BODY" -D "$TMP/headers" -H "Cookie: $COOKIE" "$BASE/_zip?p=/share/"
 if grep -Eq '^Content-Disposition: attachment; filename="[a-z0-9]{9}\.zip"' "$TMP/headers"; then ok "zip of /share/: $(grep -o 'filename="[^"]*"' "$TMP/headers")"; else fail "zip of /share/: no random name: $(grep -i disposition "$TMP/headers")"; fi
@@ -522,8 +522,8 @@ expect_body '/_search?q=Buck' 'value="My Stuff"'
 expect_body '/_search?q=Buck' "value=\"Amélie (2001) &amp; co's #1\""
 expect_body '/_search?q=Buck' 'value="movies/Big Buck Test (2024)"'
 # By kind: the extensions of videos, subtitle files, music and pictures.
-expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
-expect_search_count '/_search?kind=video' 3
+expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Long%20Take%20%282022%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
+expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
 expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'

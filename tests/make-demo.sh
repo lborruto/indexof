@@ -6,7 +6,8 @@
 #   movies/    Big Buck Test (2024)/Big Buck Test (2024).mkv: 30 s of H.264 with two audio
 #              tracks (E-AC3 5.1 "Français 5.1" fre, the default, and AAC stereo "English" eng)
 #              and two subtitle tracks (fre, eng), a keyframe every 2 s; Short (2023).mp4: 15 s
-#              of H.264 + AAC; Amélie (2001)/L'Amour & #1?.mkv, a copy of the first (every
+#              of H.264 + AAC; Long Take (2022).mp4: 2:30 at 192x108, for the player's "resumed
+#              at" (it needs more than 1:30); Amélie (2001)/L'Amour & #1?.mkv, a copy of the first (every
 #              track behind a name with an apostrophe, an ampersand, a hash and a question mark)
 #   music/     an .mp3 and a .flac, 10 s tones with tags
 #   pictures/  a .png and a .jpg
@@ -109,6 +110,13 @@ ff -f lavfi -i testsrc2=size=640x360:rate=25 \
   -filter:a aformat=channel_layouts=stereo -c:a aac -b:a 96k -metadata:s:a:0 language=eng \
   -metadata title=Short -movflags +faststart \
   'movies/Short (2023).mp4'
+# (long enough to be resumed: kept from 30 s in to a minute before the end; tiny, about 1 MB)
+ff -f lavfi -i testsrc=size=192x108:rate=10 \
+  -f lavfi -i sine=frequency=550:beep_factor=4:sample_rate=22050 -t 150 \
+  -map 0:v -map 1:a \
+  -c:v libx264 -preset veryfast -crf 35 -pix_fmt yuv420p -g 20 \
+  -c:a aac -ac 1 -b:a 32k -metadata title='Long Take' -movflags +faststart \
+  'movies/Long Take (2022).mp4'
 cp -f 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 
 # music: 10 s tones, tagged.
@@ -145,4 +153,4 @@ awk 'BEGIN { for (i = 1; i <= 1500; i++) printf "share/many/file-%04d.txt\n", i 
 
 rm -rf "$scratch"
 many=$(find share/many -type f | wc -l | tr -d ' ')
-echo "make-demo: $dir: movies (3), music (2), pictures (2), share (5 files, 1 symbolic link, many/ with $many files); ffmpeg from ${image:-this machine}"
+echo "make-demo: $dir: movies (4), music (2), pictures (2), share (5 files, 1 symbolic link, many/ with $many files); ffmpeg from ${image:-this machine}"
