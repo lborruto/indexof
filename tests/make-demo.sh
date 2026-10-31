@@ -6,11 +6,12 @@
 #   movies/    Big Buck Test (2024)/Big Buck Test (2024).mkv: 30 s of H.264 with two audio
 #              tracks (E-AC3 5.1 "Français 5.1" fre, the default, and AAC stereo "English" eng)
 #              and two subtitle tracks (fre, eng), a keyframe every 2 s; Short (2023).mp4: 15 s
-#              of H.264 + AAC; Long Take (2022).mp4: 2:30 at 192x108, for the player's "resumed
-#              at" (it needs more than 1:30); Amélie (2001)/L'Amour & #1?.mkv, a copy of the first (every
-#              track behind a name with an apostrophe, an ampersand, a hash and a question mark)
+#              of H.264 + AAC, with a subtitle file next to it, Short (2023).fr.srt; Long Take
+#              (2022).mp4: 2:30 at 192x108, for the player's "resumed at" (it needs more than
+#              1:30); Amélie (2001)/L'Amour & #1?.mkv, a copy of the first (every track behind a
+#              name with an apostrophe, an ampersand, a hash and a question mark)
 #   music/     an .mp3 and a .flac, 10 s tones with tags
-#   pictures/  a .png and a .jpg
+#   pictures/  a .png, a .jpg, and a .jpg with Exif (camera, date taken) written here
 #   share/     (meant to be mounted writable) notes.txt, link-to-passwd -> /etc/passwd, a folder
 #              whose name ends with a line break holding etc/passwd (dummy text), files named
 #              -TT=x, * and 100% done.txt, and many/ with 1,500 empty files
@@ -121,6 +122,16 @@ ff -f lavfi -i testsrc=size=192x108:rate=10 \
   -c:a aac -ac 1 -b:a 32k -metadata title='Long Take' -movflags +faststart \
   'movies/Long Take (2022).mp4'
 cp -f 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+# (a subtitle file next to the short, for the player's "fr (file)")
+cat >'movies/Short (2023).fr.srt' <<'EOF'
+1
+00:00:01,000 --> 00:00:04,000
+Un fichier de sous-titres à côté de la vidéo.
+
+2
+00:00:06,000 --> 00:00:10,000
+Il porte son nom, plus la langue : .fr.srt
+EOF
 
 # music: 10 s tones, tagged.
 ff -f lavfi -i sine=frequency=440:beep_factor=2:sample_rate=44100 -t 10 \
@@ -137,6 +148,26 @@ ff -f lavfi -i sine=frequency=880:beep_factor=2:sample_rate=44100 -t 10 \
 # pictures: one frame each.
 ff -f lavfi -i testsrc2=size=1280x720 -frames:v 1 'pictures/Test Pattern.png'
 ff -f lavfi -i gradients=size=1280x720:seed=7 -frames:v 1 -q:v 4 -pix_fmt yuvj420p 'pictures/Gradient (2024).jpg'
+# (and a photo as a camera writes it: an Exif APP1 segment right after the JPEG's first two
+# bytes, its TIFF part big-endian ("MM"): Make "Demo", Model "Demo Camera X1" and, in the Exif
+# IFD, DateTimeOriginal "2024:07:14 18:32:05". Offsets from the TIFF start, values padded to even.)
+ff -f lavfi -i testsrc2=size=1920x1080 -frames:v 1 -q:v 6 -pix_fmt yuvj420p "$scratch/photo.jpg"
+{
+  head -c 2 "$scratch/photo.jpg"
+  printf '\377\341\000\166Exif\000\000'                          # APP1, 118 bytes; "Exif"
+  printf 'MM\000\052\000\000\000\010'                             # TIFF header, IFD0 at 8
+  printf '\000\003'                                                # IFD0: 3 entries
+  printf '\001\017\000\002\000\000\000\005\000\000\000\062'          #   Make, ASCII, 5, at 50
+  printf '\001\020\000\002\000\000\000\017\000\000\000\070'          #   Model, ASCII, 15, at 56
+  printf '\207\151\000\004\000\000\000\001\000\000\000\110'          #   Exif IFD, LONG, at 72
+  printf '\000\000\000\000'                                        # no next IFD
+  printf 'Demo\000\000Demo Camera X1\000\000'                       # 50, 56
+  printf '\000\001'                                                # 72, Exif IFD: 1 entry
+  printf '\220\003\000\002\000\000\000\024\000\000\000\132'          #   DateTimeOriginal, ASCII, 20, at 90
+  printf '\000\000\000\000'                                        # no next IFD
+  printf '2024:07:14 18:32:05\000'                                  # 90, to 110
+  tail -c +3 "$scratch/photo.jpg"
+} >'pictures/Beach Walk (2024).jpg'
 
 # share: plain notes, then the awkward entries (a symbolic link out of the folder, a name
 # ending with a line break, a name that looks like an option, a shell pattern, a percent sign)
@@ -214,4 +245,4 @@ dd if=/dev/zero of='documents/Installer.iso' bs=1024 count=2048 2>/dev/null
 
 rm -rf "$scratch"
 many=$(find share/many -type f | wc -l | tr -d ' ')
-echo "make-demo: $dir: movies (4), music (2), pictures (2), share (5 files, 1 symbolic link, many/ with $many files), documents (8 files, 1 folder); ffmpeg from ${image:-this machine}"
+echo "make-demo: $dir: movies (4, 1 subtitle file), music (2), pictures (3), share (5 files, 1 symbolic link, many/ with $many files), documents (8 files, 1 folder); ffmpeg from ${image:-this machine}"

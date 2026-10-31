@@ -146,6 +146,8 @@ echo "making the demo data"
 INDEXOF_HELPER_IMAGE=indexof-helper:"$TAG" sh tests/make-demo.sh "$DATA" >"$BODY" 2>&1 || fail "make-demo.sh: $(cat "$BODY")"
 expect_file "$MKV_FILE" 'demo data'
 expect_file "$DATA/movies/Amélie (2001)/L'Amour & #1?.mkv" 'demo data'
+expect_file "$DATA/movies/Short (2023).fr.srt" 'demo data'
+expect_file "$DATA/pictures/Beach Walk (2024).jpg" 'demo data'
 expect_file "$DATA/share/link-to-passwd" 'demo data'
 if [ -f "$DATA/share/a$nl/etc/passwd" ]; then ok 'demo data: share/a<line break>/etc/passwd is there'; else fail 'demo data: no share/a<line break>/etc/passwd'; fi
 many=$(find "$DATA/share/many" -type f | wc -l | tr -d ' ')
@@ -495,7 +497,7 @@ expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
 expect_body '/_zip?p=/share/a%0A/' 'nothing to zip'
 expect_body '/_zip?p=/share/.uploads/' 'nothing to zip'
-expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Short (2023).fr.srt' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 expect_zip '/_zip?p=/music/' 'music/' 'music/Demo Song.mp3' 'music/Démo (lossless).flac'
 curl -s -o "$BODY" -D "$TMP/headers" -H "Cookie: $COOKIE" "$BASE/_zip?p=/share/"
 if grep -Eq '^Content-Disposition: attachment; filename="[a-z0-9]{9}\.zip"' "$TMP/headers"; then ok "zip of /share/: $(grep -o 'filename="[^"]*"' "$TMP/headers")"; else fail "zip of /share/: no random name: $(grep -i disposition "$TMP/headers")"; fi
@@ -561,10 +563,10 @@ expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/
 expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
-expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'
-expect_search_count '/_search?kind=images' 2
-expect_search '/_search?kind=subtitles' '/My%20Stuff/subs/Big%20Buck%20Test%20%282024%29.srt'
-expect_search_count '/_search?kind=subtitles' 1
+expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg' '/pictures/Beach%20Walk%20%282024%29.jpg'
+expect_search_count '/_search?kind=images' 3
+expect_search '/_search?kind=subtitles' '/My%20Stuff/subs/Big%20Buck%20Test%20%282024%29.srt' '/movies/Short%20%282023%29.fr.srt'
+expect_search_count '/_search?kind=subtitles' 2
 expect_search_count '/_search?kind=video&in=music' 0
 expect_search_count '/_search?q=Demo&kind=audio' 1
 expect_body '/_search?kind=video' '<option value="video" selected>'
@@ -660,6 +662,36 @@ expect_status GET "/_sub?f=$MKV&s=-1" 400
 expect_status GET "/_sub?f=$MKV" 400
 expect_status GET '/_sub?f=/.hidden/secret.txt&s=0' 404
 expect_status GET '/_sub?f=/share/link-to-passwd&s=0' 404
+# A subtitle file next to a video (s=file): converted to WebVTT (an .srt, an old one in
+# Windows-1252, an .ass), a .vtt as it is; only those extensions, 5 MB at most, under /data, not
+# hidden. (The files made here, after the search's counts.)
+SRT='/movies/Short%20(2023).fr.srt'
+expect_status GET "/_sub?f=$SRT&s=file" 200
+if [ "$(head -c 6 "$BODY")" = WEBVTT ]; then ok '/_sub s=file (.srt) starts with WEBVTT'; else fail "/_sub s=file: $(head -c 100 "$BODY")"; fi
+cues=$(grep -c -- '-->' "$BODY")
+if [ "$cues" = 2 ] && grep -Eq '^00:01\.000 --> 00:04\.000$' "$BODY"; then ok '/_sub s=file (.srt): 2 cues, the first at 1-4 s'; else fail "/_sub s=file: $cues cues in: $(head -c 300 "$BODY")"; fi
+expect_body "/_sub?f=$SRT&s=file" 'Un fichier de sous-titres à côté de la vidéo.'
+expect_header "/_sub?f=$SRT&s=file" 'Content-Type: text/vtt'
+printf '1\r\n00:00:02,000 --> 00:00:03,000\r\nCaf\351 cr\350me\r\n' >"$DATA/My Stuff/subs/old.srt"
+expect_body '/_sub?f=/My%20Stuff/subs/old.srt&s=file' 'Café crème'
+printf '[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,An ASS line.\n' >"$DATA/My Stuff/subs/a.ass"
+expect_body '/_sub?f=/My%20Stuff/subs/a.ass&s=file' 'An ASS line.'
+printf 'WEBVTT\n\n00:01.000 --> 00:02.000\nA <b>VTT</b> line.\n' >"$DATA/My Stuff/subs/a.vtt"
+expect_body '/_sub?f=/My%20Stuff/subs/a.vtt&s=file' 'A <b>VTT</b> line.'
+# (a playlist dressed as an .srt: read as SubRip, it opens nothing)
+printf '#EXTM3U\n#EXTINF:1,\n/data/share/notes.txt\n' >"$DATA/My Stuff/subs/playlist.srt"
+expect_no_body '/_sub?f=/My%20Stuff/subs/playlist.srt&s=file' 'Demo data'
+expect_status GET "/_sub?f=$MP4&s=file" 415
+expect_status GET '/_sub?f=/My%20Stuff/text/readme.txt&s=file' 415
+expect_status GET '/_sub?f=/../etc/passwd&s=file' 404
+expect_status GET '/_sub?f=/movies/../../etc/passwd&s=file' 404
+printf '1\n00:00:01,000 --> 00:00:02,000\nhidden\n' >"$DATA/My Stuff/subs/.hidden.srt"
+expect_status GET '/_sub?f=/My%20Stuff/subs/.hidden.srt&s=file' 404
+printf '1\n00:00:01,000 --> 00:00:02,000\nhidden\n' >"$DATA/.hidden/x.srt"
+expect_status GET '/_sub?f=/.hidden/x.srt&s=file' 404
+awk 'BEGIN { for (i = 0; i < 60000; i++) printf "%d\n00:00:01,000 --> 00:00:02,000\nA line of a subtitle file over five megabytes, ninety bytes long.\n\n", i + 1 }' >"$DATA/My Stuff/subs/big.srt"
+expect_status GET '/_sub?f=/My%20Stuff/subs/big.srt&s=file' 413
+expect_body '/_sub?f=/My%20Stuff/subs/big.srt&s=file' 'over 5 MB'
 
 # Repackaged with another audio track: a=1 (AAC) as a fragmented MP4, a=0 (E-AC3, which MP4
 # cannot stream) as Matroska; the video and the audio copied (the same packets, byte for byte, as
