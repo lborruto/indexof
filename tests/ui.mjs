@@ -97,10 +97,10 @@ await dav('DELETE', t + "it's.txt");
 const bottom = () => ev(`(() => { const l = document.getElementById('sl'), v = document.getElementById('ver'), hr = [...document.querySelectorAll('hr')].pop();
   const r = l.getBoundingClientRect(), vr = v.getBoundingClientRect();
   return { shown: !l.hidden && r.height > 0, text: l.textContent, left: Math.round(r.left), below: r.top >= hr.getBoundingClientRect().bottom,
-    ver: v.textContent, href: v.getAttribute('href'), right: Math.round(innerWidth - vr.right), vbelow: vr.top >= hr.getBoundingClientRect().bottom }; })()`);
+    ver: v.textContent, href: v.getAttribute('href'), right: Math.round(document.documentElement.clientWidth - vr.right), vbelow: vr.top >= hr.getBoundingClientRect().bottom }; })()`);
 let b = await bottom();
 check(b.shown && b.text === `scp: scp <your files> me@nas.example:/srv/files${t} [copy]` && b.below && b.left < 20, `${t}: the scp reminder at the bottom left: "${b.text}" (left ${b.left})`);
-check(b.ver === 'indexof test' && b.href === 'https://github.com/lborruto/indexof' && b.vbelow && b.right < 20, `${t}: "${b.ver}" in the bottom right corner, linking to ${b.href}`);
+check(b.ver === 'indexof test' && b.href === 'https://github.com/lborruto/indexof' && b.vbelow && b.right < 20, `${t}: "${b.ver}" in the bottom right corner (${b.right} px from the edge), linking to ${b.href}`);
 await ev(`document.getElementById('cp').click(); 1`);
 await sleep(300);
 const saidCp = (await ev(`document.getElementById('s').textContent`)).trim();

@@ -69,9 +69,9 @@ check(s.f === pics[0], `ArrowRight on the last picture: round to ${pics[0]} (got
 
 // No line under a picture (its details are gone): after it, the text view (hidden here). The
 // version in the corner, on the right, linking to the project (a test build, not a release).
-const under = await ev(`(() => { const im = document.getElementById('im'), n = im.nextElementSibling, v = document.getElementById('ver'); return { next: n && n.id, ver: v && v.textContent, href: v && v.getAttribute('href'), right: v && Math.round(innerWidth - v.getBoundingClientRect().right) }; })()`);
+const under = await ev(`(() => { const im = document.getElementById('im'), n = im.nextElementSibling, v = document.getElementById('ver'); return { next: n && n.id, ver: v && v.textContent, href: v && v.getAttribute('href'), right: v && Math.round(document.documentElement.clientWidth - v.getBoundingClientRect().right) }; })()`);
 check(under.next === 'tx' && !(await ev(`!!document.getElementById('pi')`)), `${pics[0]}: no line under the picture (${JSON.stringify(under.next)} after it)`);
-check(under.ver === 'indexof test' && under.href === 'https://github.com/lborruto/indexof' && under.right < 20, `${pics[0]}: "${under.ver}" in the bottom right corner, linking to ${under.href}`);
+check(under.ver === 'indexof test' && under.href === 'https://github.com/lborruto/indexof' && under.right < 20, `${pics[0]}: "${under.ver}" in the bottom right corner (${under.right} px from the edge), linking to ${under.href}`);
 
 // A subtitle file next to a video: in the list after the file's own tracks ("fr (file)" for
 // Short (2023).fr.srt), and chosen, a track of the player's with its cues.
