@@ -13,6 +13,12 @@ and `latest`; the GitHub release takes its notes from that version's section bel
   the size and the links under it, big enough to tap), and so do the search, the upload line,
   the viewer and the login page. On a computer nothing changes.
 
+### Changed
+
+- A PDF's name and every `[raw]` (in the listing and in the viewer) open in a new tab, the
+  listing or the viewer kept; the viewer's links, `[download]`, folders and `[zip]` stay in the
+  same tab.
+
 ## [1.2.0] - 2026-10-31
 
 ### Changed

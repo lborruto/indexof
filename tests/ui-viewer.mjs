@@ -41,7 +41,7 @@ const key = async k => {
 // What the page shows: the file it is on, the links, the counter, the text, the player.
 const state = () => ev(`(() => {
   const $ = id => document.getElementById(id), v = [$('v'), $('au')].find(x => !x.hidden);
-  return { f: new URLSearchParams(location.search).get('f'), raw: $('raw').href, get: $('get').href, download: $('get').getAttribute('download'),
+  return { f: new URLSearchParams(location.search).get('f'), raw: $('raw').href, rawTab: $('raw').target + ' ' + $('raw').rel, getTab: $('get').target, get: $('get').href, download: $('get').getAttribute('download'),
     up: $('up').getAttribute('href'), pn: $('pn').textContent, next: !![...$('pn').querySelectorAll('a')].find(a => a.textContent.includes('next')),
     tx: $('tx').hidden ? null : $('tx').textContent, txElements: $('tx').children.length, m: $('m').textContent,
     rs: $('rs').hidden ? null : $('rs').textContent, auto: $('pl2').hidden ? null : $('auto').checked,
@@ -56,6 +56,7 @@ const pics = order(['Test Pattern.png', 'Gradient (2024).jpg']).map(n => '/pictu
 await view(pics[0]);
 let s = await state();
 check(s.raw === base + enc(pics[0]) && s.get === s.raw && s.download === pics[0].split('/').pop() && s.up === '/pictures/', `${pics[0]}: [raw] [download] [folder] (${s.raw}, ${s.download}, ${s.up})`);
+check(s.rawTab === '_blank noopener' && s.getTab === '', `${pics[0]}: [raw] in a new tab, [download] in this one (${s.rawTab})`);
 check(s.pn.includes('1 / 2') && s.next, `${pics[0]}: "1 / 2" and [next →] (${JSON.stringify(s.pn)})`);
 check(!s.probe, `${pics[0]}: no /_probe for a picture`);
 await key('ArrowRight');

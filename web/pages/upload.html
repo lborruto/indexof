@@ -29,6 +29,7 @@ const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|
 const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
 const TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|sh|py|js|ts|css|html?)$/i;
 const viewable = p => VIDEO.test(p) || AUDIO.test(p) || IMAGE.test(p) || TEXT.test(p), PDF = /\.pdf$/i;
+const newTab = a => { a.target = '_blank'; a.rel = 'noopener'; return a; };
 const bytes = z => z === '-' ? -1 : parseFloat(z) * Math.pow(1024, 'KMGT'.indexOf(z.slice(-1)) + 1);
 // The folders mounted under /data, each read-only or writable, and the scp destination when one
 // is set: /_settings, written when the server starts. A path can be changed when its folder is
@@ -91,10 +92,12 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
   row.name = a.textContent.toLowerCase();
   row.path = decodeURIComponent(new URL(a.getAttribute('href'), location.href).pathname);
   row.folder = row.path.endsWith('/');
-  // A file's name opens it: in the viewer when it shows that kind, in the browser for a PDF, else
-  // it downloads (there is nothing to look at). [download] and [raw] are on every file.
+  // A file's name opens it: in the viewer when it shows that kind, in the browser for a PDF (in a
+  // tab of its own, the listing kept), else it downloads (there is nothing to look at).
+  // [download] and [raw] are on every file.
   if (!row.folder && viewable(row.path)) a.href = '/_play?f=' + encodeURIComponent(row.path);
-  else if (!row.folder && !PDF.test(row.path)) a.download = '';
+  else if (!row.folder && PDF.test(row.path)) newTab(a);
+  else if (!row.folder) a.download = '';
   row.date = d ? Date.parse(d[2] + ' ' + d[1] + ' ' + d[3] + ' ' + d[4] + ':' + d[5]) : 0;
   row.size = bytes(info.trim().split(/\s+/).pop() || '-');
   rows.push(row);
@@ -175,7 +178,7 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders; [download] and [raw]
-// (the file as the server sends it, in the browser) for every file; [vlc] for videos and sound;
+// (the file as the server sends it, in the browser, in a new tab) for every file; [vlc] for videos and sound;
 // [rename] [delete] in a writable folder (never the folder itself).
 function actions() {
   rows.forEach(row => {
@@ -183,7 +186,7 @@ function actions() {
     const act = (label, fn) => { const l = document.createElement('a'); l.href = '#'; l.textContent = '[' + label + ']'; l.onclick = e => { e.preventDefault(); fn(l); }; acts.push(l); };
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); return l; };
     if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
-    else { link('download', enc(row.path)).download = ''; link('raw', enc(row.path)); }
+    else { link('download', enc(row.path)).download = ''; newTab(link('raw', enc(row.path))); }
     if (VIDEO.test(row.path) || AUDIO.test(row.path)) act('vlc', () => vlc(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;

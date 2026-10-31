@@ -68,11 +68,14 @@ check(await ev(`document.getElementById('ws').hidden`), `${t}: no [delete select
 check(await tick(['a.txt', 'b.txt']), `${t}: ticked lines offer [delete selected] [move selected]`);
 // A file's name: the viewer for what it shows (a text file here), the browser for a PDF, else a
 // download; [download] (downloads) and [raw] (opens) on every file; a folder's name opens it.
-const line = n => `(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); if (!a) return null; const l = t => [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === t); const d = l('[download]'), r = l('[raw]'); return { href: a.getAttribute('href'), dl: a.hasAttribute('download'), d: d ? d.getAttribute('href') + ' ' + d.hasAttribute('download') : '', r: r ? r.getAttribute('href') + ' ' + r.hasAttribute('download') : '', view: !!(l('[view]') || l('[play]')) }; })()`;
+const line = n => `(() => { const a = [...document.querySelectorAll('pre span > a')].find(a => a.textContent === ${JSON.stringify(n)}); if (!a) return null; const l = t => [...a.parentNode.querySelectorAll('a')].find(x => x.textContent === t); const d = l('[download]'), r = l('[raw]'); const tab = x => x ? (x.getAttribute('target') || '') + ' ' + (x.getAttribute('rel') || '') : ''; return { href: a.getAttribute('href'), dl: a.hasAttribute('download'), tab: tab(a), dtab: tab(d), rtab: tab(r), d: d ? d.getAttribute('href') + ' ' + d.hasAttribute('download') : '', r: r ? r.getAttribute('href') + ' ' + r.hasAttribute('download') : '', view: !!(l('[view]') || l('[play]')) }; })()`;
 const txt = await ev(line('a.txt')), pdf = await ev(line('e.pdf')), bin = await ev(line('f.bin')), dir = await ev(line('sub/'));
 check(txt && txt.href === '/_play?f=' + encodeURIComponent(t + 'a.txt') && !txt.dl, `${t}a.txt: its name opens the viewer (${txt && txt.href})`);
 check(txt && txt.d === encodeURI(t + 'a.txt') + ' true' && txt.r === encodeURI(t + 'a.txt') + ' false' && !txt.view, `${t}a.txt: [download] downloads, [raw] opens, no [view] (${txt && txt.d}; ${txt && txt.r})`);
 check(pdf && pdf.href === 'e.pdf' && !pdf.dl, `${t}e.pdf: its name opens it in the browser (${pdf && pdf.href})`);
+// A PDF's name and every [raw] open in a new tab; the viewer's links and [download] stay in this one.
+check(pdf && pdf.tab === '_blank noopener' && pdf.rtab === '_blank noopener', `${t}e.pdf: its name and [raw] open in a new tab (${pdf && pdf.tab}; ${pdf && pdf.rtab})`);
+check(txt && txt.tab === ' ' && txt.dtab === ' ' && txt.rtab === '_blank noopener', `${t}a.txt: its name and [download] in this tab, [raw] in a new one (${JSON.stringify(txt && [txt.tab, txt.dtab, txt.rtab])})`);
 check(bin && bin.href === 'f.bin' && bin.dl && bin.d === encodeURI(t + 'f.bin') + ' true', `${t}f.bin (no preview): its name downloads it`);
 check(dir && dir.href === 'sub/' && !dir.dl && !dir.d, `${t}sub/: a folder's name opens the folder, no [download]`);
 // Delete selected: one confirm, naming the count, then gone.
