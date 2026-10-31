@@ -296,7 +296,7 @@ if (media) {
   setInterval(() => { if (!v.paused) remember(); }, 5000);
   addEventListener('pagehide', remember);
   v.addEventListener('ended', () => {
-    drop(mine); ready = false;
+    drop(mine);
     const n = next();
     if (n && $('auto').checked) location.href = play(n);
   });
@@ -309,7 +309,7 @@ function text() {
   const MiB = 1048576, tx = $('tx');
   tx.hidden = false;
   fetch(src, { headers: { Range: 'bytes=0-' + (MiB - 1) }, cache: 'no-store' }).then(r => {
-    if (r.status === 416) return [new ArrayBuffer(0), 0]; // (an empty file)
+    if (r.status === 416) return [new ArrayBuffer(0), 0]; // (a range past the end: an empty file, on servers that answer so; nginx sends 200 and nothing)
     if (!r.ok) throw new Error(r.status);
     const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)$/);
     return r.arrayBuffer().then(b => [b, m ? +m[1] : b.byteLength]);

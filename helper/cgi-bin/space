@@ -16,6 +16,9 @@ if [ "$p" = / ]; then
   # df's first column is not, two tmpfs say "tmpfs" both). The folders come sorted by name.
   seen=' '; out=; one=; n=0
   for d in /data/*; do
+    # (Only the folders the page shows: the names its start script refuses are left out here too.)
+    case "${d#/data/}" in *[\"\\\$]*|*[[:cntrl:]]*) continue ;; esac
+    [ -L "$d" ] && continue
     d=$(allowed_path "/${d#/data/}") || continue
     [ -d "$d" ] || continue
     dev=$(stat -c %d "$d") || continue

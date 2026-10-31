@@ -126,7 +126,9 @@ if (list) {
     dir = key === s.dataset.k ? -dir : (s.dataset.k === 'name' ? 1 : -1);
     key = s.dataset.k;
     bar.querySelectorAll('[data-k]').forEach(o => { o.textContent = o.dataset.k + (o === s ? (dir > 0 ? ' ^' : ' v') : ''); });
-    rows.sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * dir).forEach(r => list.append(r));
+    // (Names as the viewer's previous / next has them: Episode 2 before Episode 10, case aside.)
+    const cmp = key === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : (a, b) => a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0;
+    rows.sort((a, b) => cmp(a, b) * dir).forEach(r => list.append(r));
     page = 0; show();
   });
   document.getElementById('all').onchange = e => { shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.box.checked = e.target.checked; }); count(); };
@@ -312,13 +314,15 @@ async function mk() {
 }
 // Drag and drop: files dropped on the page go up as if picked, in a folder where the upload line
 // shows; a folder is left out (the browser hands over no content for one). Anywhere else a drop
-// does nothing, rather than the browser leaving the page to open the file.
+// does nothing, rather than the browser leaving the page to open the file. Anything else dragged
+// (text into the search box, say) is left to the browser.
 const droppable = () => !searching && settings.mounts[mountOf(here)] === 'rw';
 let dragOff = 0;
+const dragsFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
 document.addEventListener('dragover', e => {
+  if (!dragsFiles(e)) return;
   e.preventDefault();
-  if (!e.dataTransfer) return;
-  const files = [...e.dataTransfer.types].includes('Files') && droppable();
+  const files = droppable();
   e.dataTransfer.dropEffect = files ? 'copy' : 'none';
   if (!files) return;
   // (A dashed outline while files are over the page; dragover comes every few ms, so its end is
@@ -327,6 +331,7 @@ document.addEventListener('dragover', e => {
   clearTimeout(dragOff); dragOff = setTimeout(() => { document.body.style.outline = ''; }, 300);
 });
 document.addEventListener('drop', e => {
+  if (!dragsFiles(e)) return;
   e.preventDefault();
   clearTimeout(dragOff); document.body.style.outline = '';
   if (!droppable() || !e.dataTransfer) return;
