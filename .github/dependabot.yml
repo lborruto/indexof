@@ -1,0 +1,23 @@
+version: 2
+# Weekly, grouped, and only for releases at least 14 days old (cooldown), matching the rule for
+# pinned actions. The docker entry covers both Dockerfiles (base image tags and digests).
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directories: ["/web", "/helper"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      base-images:
+        patterns: ["*"]
