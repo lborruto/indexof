@@ -43,8 +43,9 @@ run.
   never renamed, moved or deleted. The routes and the settings are generated at start.
 - **Settings instead of fixed values:** `INDEXOF_PASSWORD`, `INDEXOF_LINK_SECRET` (32
   characters or more, never the password; the containers refuse to start without the two),
-  `INDEXOF_SCP`, `INDEXOF_BIND` (`127.0.0.1` by default), `INDEXOF_PORT` (`8099`), `PUID` /
-  `PGID`.
+  `INDEXOF_SCP` and `INDEXOF_SCP_ROOT` (the scp line's destination and the folders' place on
+  that host, both checked at start), `INDEXOF_BIND` (`127.0.0.1` by default), `INDEXOF_PORT`
+  (`8099`), `PUID` / `PGID`.
 - **Security in place:** dotfiles denied, symbolic links not followed, files served with
   `Content-Security-Policy: sandbox` and `X-Content-Type-Options: nosniff`, the helper on an
   internal-only network and never published, every CGI value cut down or checked to be a real

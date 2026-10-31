@@ -5,7 +5,8 @@
 #                       the server can write to (a hidden .uploads folder can be made in it) gets
 #                       uploads, new folders, rename/move and delete; one mounted read-only (:ro)
 #                       is browse-only. The folder itself is listed but never deleted or moved.
-#   /tmp/settings.json  for the pages (/_settings): {"mounts":{"name":"ro"|"rw",...},"scp":...}
+#   /tmp/settings.json  for the pages (/_settings): {"mounts":{"name":"ro"|"rw",...},"scp":...,
+#                       "scp_root":...} (the scp line's destination and the folders' place on it)
 #   /tmp/indexof-home/  a link to each folder: what the home page lists.
 # A folder is refused, with a line in the log, when its name starts with a dot (hidden) or an
 # underscore (the page's own routes: /_login, /_search...), or holds a character nginx's config
@@ -16,6 +17,22 @@ set -eu
 secret=${INDEXOF_LINK_SECRET:-}
 [ ${#secret} -ge 32 ] || { echo "indexof: set INDEXOF_LINK_SECRET to 32 characters or more (openssl rand -hex 32), never the password" >&2; exit 1; }
 [ "$secret" != "$INDEXOF_PASSWORD" ] || { echo "indexof: INDEXOF_LINK_SECRET must not be the password" >&2; exit 1; }
+
+# The scp line's destination, when there is one: user@host or host (letters, digits, . _ - and
+# one @: nothing scp, a shell or the settings JSON could read otherwise), and the folder on that
+# host holding the mounted folders: an absolute path, /data (the container's own) when unset.
+scp=${INDEXOF_SCP:-}
+case "$scp" in
+  '') ;;
+  *[!A-Za-z0-9._@-]*|-*|*@-*|*@*@*|@*|*@) echo "indexof: INDEXOF_SCP must be user@host or host (letters, digits, . _ - and one @): refusing it" >&2; exit 1 ;;
+esac
+root=${INDEXOF_SCP_ROOT:-/data}
+case "$root" in
+  [!/]*) echo "indexof: INDEXOF_SCP_ROOT must be an absolute path on the host (/srv/files): refusing it" >&2; exit 1 ;;
+  *[\"\\\$\`\']*|*[[:space:]]*) echo "indexof: INDEXOF_SCP_ROOT holds a quote, a backslash, a dollar, a backtick or whitespace: refusing it" >&2; exit 1 ;;
+esac
+case "$(printf '%s' "$root" | tr -d '\001-\037\177')" in "$root") ;; *) echo "indexof: INDEXOF_SCP_ROOT holds a control character: refusing it" >&2; exit 1 ;; esac
+while [ "$root" != "${root%/}" ]; do root=${root%/}; done # (a trailing slash dropped; / itself is empty)
 
 conf=/tmp/mounts.conf
 json=/tmp/settings.json
@@ -39,7 +56,7 @@ jsonstr() { printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"]/\\&/g')"; }
 # The folders: which are there, which are writable. One "mode name" line each.
 mounts=
 for path in /data/* /data/.*; do
-  [ -e "$path" ] || continue # (the pattern itself, when nothing matches)
+  [ -e "$path" ] || [ -L "$path" ] || continue # (the pattern itself, when nothing matches; a link to nowhere is refused below)
   name=${path#/data/}
   case "$name" in .|..) continue ;; esac
   reason=
@@ -137,7 +154,7 @@ EOF
 done
 unset IFS; set +f
 
-# The settings: the folders, in the listing's order, and the scp destination (user@host) when
-# one is set.
-scp=null; [ -z "${INDEXOF_SCP:-}" ] || scp=$(jsonstr "$INDEXOF_SCP")
-printf '{"mounts":{%s},"scp":%s}\n' "${members#,}" "$scp" >"$json"
+# The settings: the folders, in the listing's order, the scp destination (user@host) when one
+# is set, and the folders' place on that host (for the scp line: root + the page's path).
+if [ -n "$scp" ]; then scp=$(jsonstr "$scp"); else scp=null; fi
+printf '{"mounts":{%s},"scp":%s,"scp_root":%s}\n' "${members#,}" "$scp" "$(jsonstr "$root")" >"$json"
