@@ -1,10 +1,13 @@
 <html>
 <head><title>Play</title></head>
 <body>
-<h1 id="t">Play</h1><hr>
+<h1 id="t">Play</h1>
+<pre><a id="raw" href="#">[raw]</a> <a id="get" href="#" download>[download]</a> <a id="up" href="#">[folder]</a>    <span id="pn"></span><label id="pl2" hidden>  <input type="checkbox" id="auto" checked> play next</label></pre><hr>
 <video id="v" controls autoplay style="max-width: 100%; max-height: 80vh; background: #000" hidden></video>
 <audio id="au" controls autoplay style="width: 100%" hidden></audio>
 <img id="im" style="max-width: 100%; max-height: 85vh" alt="" hidden>
+<pre id="tx" style="white-space: pre-wrap" hidden></pre>
+<pre id="rs" hidden></pre>
 <pre id="c" hidden><a href="#" id="pp">pause</a>  <input type="range" id="sk" min="0" max="0" step="1" value="0" style="width: 50%; vertical-align: middle">  <span id="tm"></span></pre>
 <pre id="tracks" hidden>Audio: <select id="as" disabled><option value="">-</option></select>  <span id="an"></span>
 <span id="sl">Subtitles: <select id="s"><option value="">off</option></select>  <span id="n"></span></span></pre>
@@ -13,10 +16,15 @@
 <script>
 // f: a path of this server only (/folder/...), never //other.host/... (which a browser would load from elsewhere).
 const f0 = new URLSearchParams(location.search).get('f') || '', f = /^\/[^/\\]/.test(f0) ? f0 : '/', $ = id => document.getElementById(id);
-const kind = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i.test(f) ? 'image' : /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i.test(f) ? 'audio' : 'video';
+// The kinds, by extension: the listing's own (videos, sound, pictures), then text, shown as it is
+// (.ts is a video there, as in the listing: an MPEG transport stream far more often than TypeScript).
+const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i, AUDIO = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i;
+const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|sh|py|js|ts|css|html?)$/i;
+const kindOf = p => IMAGE.test(p) ? 'image' : AUDIO.test(p) ? 'audio' : VIDEO.test(p) ? 'video' : TEXT.test(p) ? 'text' : '';
+const kind = kindOf(f) || 'video', media = kind === 'audio' || kind === 'video';
 const v = $(kind === 'audio' ? 'au' : 'v');
 const src = location.origin + f.split('/').map(encodeURIComponent).join('/'), q = 'f=' + encodeURIComponent(f);
-$('t').textContent = (kind === 'image' ? 'View: ' : 'Play: ') + f;
+$('t').textContent = (media ? 'Play: ' : 'View: ') + f;
 document.title = f.split('/').pop();
 $('dl').href = src;
 const msg = t => { $('m').textContent = t; }, note = t => { $('n').textContent = t; };
@@ -32,6 +40,7 @@ const SILENT = ['ac3', 'eac3', 'dts', 'truehd', 'mlp', 'pcm_bluray', 'pcm_dvd'];
 // the chosen time, which /_probe?k= gives, so the clock and the subtitles stay right).
 let info = null, mode = 'direct', off = 0, track = 0;
 if (kind === 'image') { $('im').hidden = false; $('im').src = src; $('im').onerror = () => msg('This browser cannot show this picture: download it.'); }
+else if (kind === 'text') text();
 else {
   v.hidden = false; $('tracks').hidden = false; $('vl').hidden = false; $('sl').hidden = kind === 'audio';
   v.src = src;
@@ -171,7 +180,7 @@ $('cv').onclick = e => {
 
 // What is in the file: its audio tracks to choose from (the one it plays as it is, first), and
 // its subtitle tracks.
-if (kind !== 'image') fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
+if (media) fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
   const i = { dur: 0, video: '', audio: [] };
   t.split('\n').forEach(l => {
     const w = l.split(' ');
@@ -200,6 +209,122 @@ if (kind !== 'image') fetch('/_probe?' + q, { cache: 'no-store' }).then(r => r.o
   // Another track needs the video (remux) or the browser's own switch.
   sel.disabled = i.audio.length < 2 || (!i.video && !v.audioTracks);
 });
+
+// GitHub's links: the file as the server gives it (a browser shows what it can), the same to
+// save, and its folder.
+const dir = f.replace(/[^/]*$/, ''), enc = p => p.split('/').map(encodeURIComponent).join('/');
+$('raw').href = src; $('get').href = src; $('get').download = f.split('/').pop(); $('up').href = enc(dir);
+
+// This browser's memory (localStorage), for the "play next" choice and where each file was left:
+// a convenience only, so the page works the same without it (private window, blocked storage).
+const load = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const keep = (k, x) => { try { localStorage.setItem(k, x); } catch (e) {} };
+const drop = k => { try { localStorage.removeItem(k); } catch (e) {} };
+
+// Previous / next: the other files of this kind in the folder, by name as a person sorts them
+// (2 before 10, é with e), from the folder's own listing. Pictures and text go round; sound and
+// videos stop at the ends, and play on to the next one when "play next" is on.
+let others = [], at = -1;
+const round = !media;
+const prev = () => at > 0 ? others[at - 1] : round && others.length > 1 ? others[others.length - 1] : null;
+const next = () => at >= 0 && at < others.length - 1 ? others[at + 1] : round && others.length > 1 ? others[0] : null;
+const play = p => '/_play?f=' + encodeURIComponent(p);
+fetch(enc(dir), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '').then(t => {
+  const base = location.origin + enc(dir), names = [];
+  // (The listing's links only: not ../, folders (a trailing /), hidden files, the line under it.)
+  new DOMParser().parseFromString(t, 'text/html').querySelectorAll('pre a[href]').forEach(a => {
+    let p;
+    try { p = decodeURIComponent(new URL(a.getAttribute('href'), base).pathname); } catch (e) { return; }
+    const n = p.slice(dir.length);
+    if (p.startsWith(dir) && n && n.indexOf('/') === -1 && n[0] !== '.' && kindOf(n) === kind && names.indexOf(n) === -1) names.push(n);
+  });
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  others = names.map(n => dir + n); at = others.indexOf(f);
+  if (at < 0 || others.length < 2) return;
+  const pn = $('pn'), link = (label, p) => {
+    if (!p) return document.createTextNode(' '.repeat(label.length)); // (the counter stays in place)
+    const a = document.createElement('a'); a.href = play(p); a.textContent = label; a.title = p.split('/').pop(); return a;
+  };
+  pn.append(link('[← prev]', prev()), ' ' + (at + 1) + ' / ' + others.length + ' ', link('[next →]', next()));
+});
+// The arrow keys too, except where they already mean something: on the player (it seeks), in
+// the controls (the track lists, the seek bar), and with a modifier (Alt+← is the browser's back).
+document.addEventListener('keydown', e => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const a = document.activeElement;
+  if (a && (a === v || /^(AUDIO|VIDEO|INPUT|SELECT|TEXTAREA|BUTTON)$/.test(a.tagName))) return;
+  const p = e.key === 'ArrowLeft' ? prev() : next();
+  if (p) { e.preventDefault(); location.href = play(p); }
+});
+
+// Sound and videos: "play next" (remembered), and where each file was left. The position kept is
+// the one in the file (off + currentTime: the repackaged stream starts at `off`), every 5 s while
+// playing and when the page goes; not before the saved one is used (a 0 would replace it); the
+// 200 latest only. Kept from 30 s in to a minute before the end: past that, the file is done.
+const POS = 'indexof:pos:', mine = POS + f;
+const where = () => off + v.currentTime, dur = () => info && info.dur || (isFinite(v.duration) ? v.duration : 0);
+const saved = () => { try { const o = JSON.parse(load(mine)); return typeof o === 'number' ? o : o && +o.t || 0; } catch (e) { return 0; } };
+let ready = false;
+function remember() {
+  if (!ready) return;
+  const t = where(), d = dur();
+  if (t <= 30 || !d || t >= d - 60) { drop(mine); return; }
+  keep(mine, JSON.stringify({ t: Math.floor(t), at: Date.now() }));
+  try { // the oldest beyond 200 go
+    const all = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(POS)) { let a = 0; try { a = JSON.parse(localStorage.getItem(k)).at || 0; } catch (e) {} all.push([k, a]); } }
+    all.sort((x, y) => y[1] - x[1]).slice(200).forEach(([k]) => localStorage.removeItem(k));
+  } catch (e) {}
+}
+if (media) {
+  $('pl2').hidden = false;
+  $('auto').checked = load('indexof:playnext') !== '0';
+  $('auto').onchange = () => keep('indexof:playnext', $('auto').checked ? '1' : '0');
+  // (Once the file's length is known: the first load is always the file as it is, from 0.)
+  v.addEventListener('loadedmetadata', () => {
+    const s = saved(), d = dur();
+    if (mode === 'direct' && s > 30 && s < d - 60) {
+      v.currentTime = s;
+      const rs = $('rs'), a = document.createElement('a');
+      a.href = '#'; a.textContent = '[start over]';
+      a.onclick = e => { e.preventDefault(); drop(mine); rs.hidden = true; if (mode === 'remux') seek(0); else v.currentTime = 0; };
+      rs.textContent = 'resumed at ' + fmt(s) + ' — '; rs.append(a); rs.hidden = false;
+    } else if (s) drop(mine);
+    ready = true;
+  }, { once: true });
+  setInterval(() => { if (!v.paused) remember(); }, 5000);
+  addEventListener('pagehide', remember);
+  v.addEventListener('ended', () => {
+    drop(mine); ready = false;
+    const n = next();
+    if (n && $('auto').checked) location.href = play(n);
+  });
+}
+
+// Text: the file's first 1 MiB (a range: the server sends that much only), shown as it is,
+// never as a page (HTML, Markdown, SVG: their source). UTF-8, or else Windows-1252 (old .nfo and
+// .srt files); a character cut at 1 MiB is left out, not taken for a wrong encoding.
+function text() {
+  const MiB = 1048576, tx = $('tx');
+  tx.hidden = false;
+  fetch(src, { headers: { Range: 'bytes=0-' + (MiB - 1) }, cache: 'no-store' }).then(r => {
+    if (r.status === 416) return [new ArrayBuffer(0), 0]; // (an empty file)
+    if (!r.ok) throw new Error(r.status);
+    const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)$/);
+    return r.arrayBuffer().then(b => [b, m ? +m[1] : b.byteLength]);
+  }).then(([b, size]) => {
+    const bytes = new Uint8Array(b, 0, Math.min(b.byteLength, MiB)), cut = size > bytes.length;
+    let t;
+    try { t = new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: cut }); }
+    catch (e) { t = new TextDecoder('windows-1252').decode(bytes); }
+    tx.textContent = t;
+    if (cut) {
+      const a = document.createElement('a'); a.href = src; a.textContent = '[raw]';
+      $('m').textContent = 'first 1 MiB shown — '; $('m').append(a, ' for the whole file');
+    }
+  }).catch(() => msg('This file could not be read: download it.'));
+}
 </script>
 </body>
 </html>
