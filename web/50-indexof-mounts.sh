@@ -148,13 +148,16 @@ location ^~ "/$name/" {
         add_header X-Content-Type-Options nosniff always;
         $files
     }
-    # Folders: the listing, with the line under it.
-    if (\$indexof_cookie = 0) { return 302 /_login; }
-    autoindex on;
-    autoindex_exact_size off;
-    autoindex_localtime on;
-    add_after_body /_upload;
-    $folders
+    # Folders: the listing, with the line under it (here only: a file of the folder, an .html
+    # one say, is served as it is, without the line).
+    location ~ /\$ {
+        if (\$indexof_cookie = 0) { return 302 /_login; }
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        add_after_body /_upload;
+        $(printf '%s' "$folders" | indent '    ')
+    }
 }
 EOF
   ln -s "/data/$name" "$home/$name"

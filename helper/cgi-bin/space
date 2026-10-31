@@ -1,12 +1,34 @@
 #!/bin/sh
 # ?p=: the free space of the disk holding a path of the page (/folder/..., in a mounted folder
-# under /data: lib.sh's rules), as "X free / Y"; nothing for any other path.
+# under /data: lib.sh's rules), as "X free / Y"; nothing for any other path. p=/ (the home page):
+# every disk holding a mounted folder, once each: "X free / Y" when they are all on one disk,
+# else "media X free / Y · backup X free / Y" (each disk named after its first folder, by name).
 # shellcheck source=helper/cgi-bin/lib.sh
 . "$(dirname "$0")/lib.sh"
 printf 'Content-Type: text/plain\r\n\r\n'
 p=; set -f; IFS='&'
 for kv in $QUERY_STRING; do case "$kv" in p=*) p=$(httpd -d "$(printf '%s' "${kv#p=}" | tr '+' ' ')") ;; esac; done
 unset IFS; set +f
-d=$(allowed_path "$p") || exit 0
 # (-P: one line per disk, however long its name)
-df -hP "$d" | awk 'NR == 2 { print $4 " free / " $2 }'
+free() { df -hP "$1" | awk 'NR == 2 { print $4 " free / " $2 }'; }
+if [ "$p" = / ]; then
+  # A disk is its device number (stat's %d: the same for every folder mounted from one disk;
+  # df's first column is not, two tmpfs say "tmpfs" both). The folders come sorted by name.
+  seen=' '; out=; one=; n=0
+  for d in /data/*; do
+    # (Only the folders the page shows: the names its start script refuses are left out here too.)
+    case "${d#/data/}" in *[\"\\\$]*|*[[:cntrl:]]*) continue ;; esac
+    [ -L "$d" ] && continue
+    d=$(allowed_path "/${d#/data/}") || continue
+    [ -d "$d" ] || continue
+    dev=$(stat -c %d "$d") || continue
+    case "$seen" in *" $dev "*) continue ;; esac
+    seen="$seen$dev "; n=$((n + 1))
+    one=$(free "$d")
+    out="$out${out:+ · }${d#/data/} $one"
+  done
+  if [ "$n" -eq 1 ]; then printf '%s\n' "$one"; elif [ "$n" -gt 1 ]; then printf '%s\n' "$out"; fi
+  exit 0
+fi
+d=$(allowed_path "$p") || exit 0
+free "$d"

@@ -15,7 +15,9 @@ BASE="http://127.0.0.1:$PORT"
 PASSWORD=Test123pw
 SECRET=0123456789abcdef0123456789abcdef
 COOKIE="session=$PASSWORD"
-PROJECT=indexof-test
+PROJECT=${INDEXOF_TEST_PROJECT:-indexof-test}
+TAG=${INDEXOF_TEST_TAG:-test}           # the images built here (indexof:$TAG, indexof-helper:$TAG)
+CDP_PORT=${INDEXOF_TEST_CDP_PORT:-9333} # the browser test's Chrome
 RO_PORT=$((PORT + 1)) # (a second page, every folder read-only, at the end)
 
 # Everything made here goes under one temporary folder, removed at the end whatever happens.
@@ -50,6 +52,13 @@ echo 'hidden' >"$DATA/_search/secret.txt"
 echo 'hidden' >"$DATA/.hidden/secret.txt"
 : >"$DATA/share/pat/*"; : >"$DATA/share/pat/[ab].txt"; : >"$DATA/share/pat/a.txt"; : >"$DATA/share/pat/b.txt"
 printf '1\n00:00:01,000 --> 00:00:02,000\nA subtitle file.\n' >"$DATA/My Stuff/subs/Big Buck Test (2024).srt"
+# The player's text view (tests/ui-viewer.mjs): plain text, a page (shown as its source), an old
+# .nfo in Windows-1252 (é as the one byte E9, not UTF-8) and a log of more than 1 MiB.
+mkdir -p "$DATA/My Stuff/text" || exit 1
+printf 'Plain text for the viewer.\n' >"$DATA/My Stuff/text/readme.txt"
+printf '<html><body><b>shown as source</b></body></html>\n' >"$DATA/My Stuff/text/page.html"
+printf 'Caf\351 cr\350me\n' >"$DATA/My Stuff/text/old.nfo"
+awk 'BEGIN { for (i = 1; i <= 30000; i++) printf "line %05d of a log longer than one mebibyte\n", i }' >"$DATA/My Stuff/text/big.log"
 ln -s /nowhere "$DATA/dangling"
 echo 'x' >"$DATA/file.txt"
 head -c 30000000 /dev/zero >"$TMP/big.bin"
@@ -83,10 +92,10 @@ done
 cat >"$TMP/override.yaml" <<EOF
 services:
   indexof:
-    image: indexof:test
+    image: indexof:$TAG
     volumes: !override
 $web_volumes  indexof-helper:
-    image: indexof-helper:test
+    image: indexof-helper:$TAG
     volumes: !override
 $helper_volumes
 EOF
@@ -126,15 +135,15 @@ want(all(v.get("read_only") for v in h["volumes"]), "the helper has a writable m
 ' "$BODY" "$PASSWORD" "$SECRET"; then ok 'compose.yaml: 127.0.0.1:8099, 1000:1000, helper internal only, log limits'; else fail "compose.yaml: $(python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1])); print(json.dumps(c["services"], indent=1)[:1500])' "$BODY")"; fi
 
 echo "building the images"
-docker build -q -t indexof:test web >/dev/null || fail 'docker build web'
-docker build -q -t indexof-helper:test helper >/dev/null || fail 'docker build helper'
+docker build -q -t indexof:"$TAG" web >/dev/null || fail 'docker build web'
+docker build -q -t indexof-helper:"$TAG" helper >/dev/null || fail 'docker build helper'
 ok 'images built'
 
 # The demo data, made with the helper image's ffmpeg: the movies (one with two audio tracks and
 # two subtitle tracks, one behind an odd name), music, pictures and share's awkward entries (a
 # symbolic link out of the folder, a name ending with a line break, -TT=x, *, 1,500 files).
 echo "making the demo data"
-INDEXOF_HELPER_IMAGE=indexof-helper:test sh tests/make-demo.sh "$DATA" >"$BODY" 2>&1 || fail "make-demo.sh: $(cat "$BODY")"
+INDEXOF_HELPER_IMAGE=indexof-helper:"$TAG" sh tests/make-demo.sh "$DATA" >"$BODY" 2>&1 || fail "make-demo.sh: $(cat "$BODY")"
 expect_file "$MKV_FILE" 'demo data'
 expect_file "$DATA/movies/Amélie (2001)/L'Amour & #1?.mkv" 'demo data'
 expect_file "$DATA/share/link-to-passwd" 'demo data'
@@ -145,7 +154,7 @@ expect_no_file "$DATA/.make-demo" 'demo data: scratch folder removed'
 # ffprobe, from the helper image (as the current user: the temporary folder is theirs alone), on
 # a file under the temporary folder: media_of writes its streams and format to $TMP/probe.txt;
 # video_packets prints the video track's bytes and packets.
-ffprobe_t() { docker run --rm --network none --user "$(id -u):$(id -g)" -v "$TMP:/x:ro" --entrypoint ffprobe indexof-helper:test -v error "$@"; }
+ffprobe_t() { docker run --rm --network none --user "$(id -u):$(id -g)" -v "$TMP:/x:ro" --entrypoint ffprobe indexof-helper:"$TAG" -v error "$@"; }
 media_of() { ffprobe_t -show_entries format=format_name:stream=codec_type,codec_name,channels -of flat "/x/${1#"$TMP"/}" >"$TMP/probe.txt" 2>&1; }
 expect_media() { # FILE WHAT NEEDLE...: each NEEDLE in ffprobe's view of FILE
   f=$1; what=$2; shift 2
@@ -164,19 +173,19 @@ case "$src_video" in *' 750') ok "demo mkv: 750 video packets ($src_video)" ;; *
 
 # The image's own checks, before the stack: the config (rendered with the mounts, none here)
 # passes nginx -t, and a missing or short secret stops the start.
-if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET indexof:test nginx -t >"$BODY" 2>&1; then ok 'nginx -t on the rendered config'; else fail "nginx -t: $(cat "$BODY")"; fi
-if docker run --rm -e INDEXOF_LINK_SECRET=$SECRET indexof:test nginx -t >"$BODY" 2>&1; then fail 'started without INDEXOF_PASSWORD'; fi
+if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET indexof:"$TAG" nginx -t >"$BODY" 2>&1; then ok 'nginx -t on the rendered config'; else fail "nginx -t: $(cat "$BODY")"; fi
+if docker run --rm -e INDEXOF_LINK_SECRET=$SECRET indexof:"$TAG" nginx -t >"$BODY" 2>&1; then fail 'started without INDEXOF_PASSWORD'; fi
 if grep -q INDEXOF_PASSWORD "$BODY"; then ok 'refuses to start without INDEXOF_PASSWORD'; else fail "no INDEXOF_PASSWORD message in: $(cat "$BODY")"; fi
-if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=short indexof:test nginx -t >"$BODY" 2>&1; then fail 'started with a short INDEXOF_LINK_SECRET'; fi
+if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=short indexof:"$TAG" nginx -t >"$BODY" 2>&1; then fail 'started with a short INDEXOF_LINK_SECRET'; fi
 if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'refuses to start with a short INDEXOF_LINK_SECRET'; else fail "no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
-if docker run --rm indexof-helper:test >"$BODY" 2>&1; then fail 'helper started without INDEXOF_LINK_SECRET'; fi
+if docker run --rm indexof-helper:"$TAG" >"$BODY" 2>&1; then fail 'helper started without INDEXOF_LINK_SECRET'; fi
 if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'helper refuses to start without INDEXOF_LINK_SECRET'; else fail "helper: no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
 
 # INDEXOF_SCP (the scp line's destination) must be user@host or host, INDEXOF_SCP_ROOT (the
 # folder on that host holding the mounted folders) an absolute path: anything scp, a shell or
 # the settings JSON could read otherwise stops the start, with a line naming the variable.
 refused_start() { # VARIABLE VALUE WHAT: the start refuses VARIABLE=VALUE, naming it
-  if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -e INDEXOF_SCP=me@nas.example -e "$1=$2" indexof:test nginx -t >"$BODY" 2>&1; then fail "started with $1 $3"; fi
+  if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -e INDEXOF_SCP=me@nas.example -e "$1=$2" indexof:"$TAG" nginx -t >"$BODY" 2>&1; then fail "started with $1 $3"; fi
   if grep -q "$1" "$BODY"; then ok "refuses $1 $3"; else fail "$1 $3: no $1 in: $(cat "$BODY")"; fi
 }
 refused_start INDEXOF_SCP 'me@host x' 'with a space'
@@ -208,7 +217,7 @@ refused_start INDEXOF_SCP_ROOT "/srv${nl}x" 'with a line break'
 # one; the root as given (a trailing slash dropped, / itself empty), /data without one.
 expect_settings() { # WANT [docker run options...]
   want=$1; shift
-  got=$(docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET "$@" indexof:test sh -c '/docker-entrypoint.d/50-indexof-mounts.sh >/dev/null 2>&1 && cat /tmp/settings.json')
+  got=$(docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET "$@" indexof:"$TAG" sh -c '/docker-entrypoint.d/50-indexof-mounts.sh >/dev/null 2>&1 && cat /tmp/settings.json')
   if [ "$got" = "$want" ]; then ok "settings (${*:-nothing set}): $got"; else fail "settings (${*:-nothing set}): $got, wanted $want"; fi
 }
 expect_settings '{"mounts":{},"scp":null,"scp_root":"/data"}'
@@ -221,13 +230,13 @@ expect_settings '{"mounts":{},"scp":null,"scp_root":"/srv"}' -e INDEXOF_SCP_ROOT
 # Every entry under /data is looked at: a dangling symbolic link and a plain file are refused
 # with a line each, never skipped in silence (the whole fixture mounted, read-only); the others
 # are the settings, the odd name as it is.
-docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA:/data:ro" indexof:test sh -c '/docker-entrypoint.d/50-indexof-mounts.sh && cat /tmp/settings.json' >"$BODY" 2>&1 || fail "start script on the whole fixture: $(cat "$BODY")"
+docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA:/data:ro" indexof:"$TAG" sh -c '/docker-entrypoint.d/50-indexof-mounts.sh && cat /tmp/settings.json' >"$BODY" 2>&1 || fail "start script on the whole fixture: $(cat "$BODY")"
 if grep -q 'refused mount /data/dangling: it is a symbolic link' "$BODY"; then ok 'start log: refused mount dangling (a symbolic link to nowhere)'; else fail "no 'refused mount' for the dangling link in: $(cat "$BODY")"; fi
 if grep -q 'refused mount /data/file.txt: it is not a folder' "$BODY"; then ok 'start log: refused mount file.txt (not a folder)'; else fail "no 'refused mount' for file.txt in: $(cat "$BODY")"; fi
 if grep -q "^{\"mounts\":{\"$ODD\":\"ro\",\"My Stuff\":\"ro\",\"movies\":\"ro\",\"music\":\"ro\",\"pictures\":\"ro\",\"share\":\"ro\"}," "$BODY"; then ok 'settings (whole fixture, read-only): the six folders, the odd name as it is'; else fail "settings (whole fixture): $(grep '^{' "$BODY")"; fi
 # A folder whose name holds a control character (Docker mounts it as such) is refused with a
 # line, and is not in the settings.
-docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA/share:/data/share:ro" -v "$DATA/share:/data/a${ctl}b:ro" indexof:test sh -c '/docker-entrypoint.d/50-indexof-mounts.sh && cat /tmp/settings.json' >"$BODY" 2>&1 || fail "start script with a control character mount: $(tr -d '\001' <"$BODY")"
+docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA/share:/data/share:ro" -v "$DATA/share:/data/a${ctl}b:ro" indexof:"$TAG" sh -c '/docker-entrypoint.d/50-indexof-mounts.sh && cat /tmp/settings.json' >"$BODY" 2>&1 || fail "start script with a control character mount: $(tr -d '\001' <"$BODY")"
 if grep -q 'refused mount /data/a.b: its name holds a control character' "$BODY"; then ok 'start log: refused mount a<control character>b'; else fail "no 'refused mount' for the control character in: $(tr -d '\001' <"$BODY")"; fi
 if grep -q '^{"mounts":{"share":"ro"},' "$BODY"; then ok 'settings: the control character mount left out'; else fail "settings with a control character mount: $(grep '^{' "$BODY")"; fi
 
@@ -348,6 +357,10 @@ expect_status PUT '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 201 -T "$TMP/hel
 expect_file "$DATA/share/pat/café & #1 (x).txt" 'upload of an odd name'
 expect_body /share/pat/ 'href="caf%C3%A9%20%26%20%231%20%28x%29.txt">café &amp; #1 (x).txt</a>'
 expect_body '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 'hello'
+# A file is served as it is: the listing's line (Upload, Logout, the script) goes under folders only.
+expect_body '/My%20Stuff/text/page.html' '<b>shown as source</b>'
+expect_no_body '/My%20Stuff/text/page.html' 'Logout'
+expect_body '/My%20Stuff/text/' 'Logout'
 expect_status MOVE '/share/pat/caf%C3%A9%20%26%20%231%20(x).txt' 204 -H "Destination: $BASE/share/pat/caf%C3%A9%20(2).txt"
 expect_file "$DATA/share/pat/café (2).txt" 'rename of an odd name'
 expect_status DELETE '/share/pat/caf%C3%A9%20(2).txt' 204
@@ -432,7 +445,8 @@ if grep -Eq '^[0-9.]+[KMGT]?$' "$BODY"; then ok "/_size?p=/movies/ -> $(cat "$BO
 expect_status GET '/_size?p=/share/many/' 200
 if grep -Eq '^[0-9.]+[KMGT]?$' "$BODY"; then ok "/_size?p=/share/many/ -> $(cat "$BODY")"; else fail "/_size?p=/share/many/: not a size: $(cat "$BODY")"; fi
 expect_status GET "/_size?p=$MP4" 200
-if grep -Eq '^1\.[0-9]M$' "$BODY"; then ok "/_size of the mp4 -> $(cat "$BODY")"; else fail "/_size of the mp4: $(cat "$BODY"), wanted 1.xM"; fi
+# (1.2M on disk; Docker Desktop's file sharing may still count 2.0M just after it was written)
+if grep -Eq '^(1\.[0-9]|2\.0)M$' "$BODY"; then ok "/_size of the mp4 -> $(cat "$BODY")"; else fail "/_size of the mp4: $(cat "$BODY"), wanted 1.xM"; fi
 expect_empty '/_size?p=/../etc/'
 expect_empty '/_size?p=/'
 expect_empty '/_size?p=/_search/'
@@ -444,6 +458,19 @@ expect_body '/_space?p=/share/' ' free / '
 if grep -Eq '^[0-9.]+[KMGTP]? free / [0-9.]+[KMGTP]?$' "$BODY"; then ok "/_space?p=/share/ -> $(cat "$BODY")"; else fail "/_space?p=/share/: $(cat "$BODY")"; fi
 expect_empty '/_space?p=/../'
 expect_empty '/_space?p=/_search/'
+expect_empty '/_space?p='
+# The home page (p=/): each disk holding a mounted folder, once; the fixture's folders are all on
+# one disk, so "X free / Y" alone, as in a folder.
+for p in %2F /; do
+  expect_status GET "/_space?p=$p" 200
+  if [ "$(sed -E 's/[0-9.]+[KMGTP]?/N/g' "$BODY")" = 'N free / N' ]; then ok "/_space?p=$p (the home page, one disk) -> $(cat "$BODY")"; else fail "/_space?p=$p: '$(cat "$BODY")', wanted 'X free / Y'"; fi
+done
+# Several disks (the helper image alone, two tmpfs besides the fixture's disk; a hidden one and
+# one starting with _ left out): each named after its first folder by name, joined with " · ".
+docker run --rm --network none -e QUERY_STRING=p=%2F -v "$DATA/share:/data/share:ro" -v "$DATA/movies:/data/movies:ro" --tmpfs /data/backup --tmpfs /data/_cache --tmpfs /data/.snap --entrypoint /www/cgi-bin/space indexof-helper:"$TAG" >"$BODY" 2>&1 || fail "space with several disks: $(cat "$BODY")"
+tr -d '\r' <"$BODY" | sed '1,/^$/d' >"$TMP/space"
+got=$(sed -E 's/[0-9.]+[KMGTP]?/N/g' "$TMP/space")
+if [ "$got" = 'backup N free / N · movies N free / N' ]; then ok "/_space?p=/ with several disks -> $(cat "$TMP/space")"; else fail "/_space?p=/ with several disks: '$(cat "$BODY")'"; fi
 
 # Zips: a folder's [zip] link (GET) and the selection's form (POST), valid for Python's zipfile,
 # with a random 9-character name, streamed (nothing left in the helper's /tmp). The symbolic
@@ -458,7 +485,7 @@ expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
 expect_body '/_zip?p=/share/a%0A/' 'nothing to zip'
 expect_body '/_zip?p=/share/.uploads/' 'nothing to zip'
-expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 expect_zip '/_zip?p=/music/' 'music/' 'music/Demo Song.mp3' 'music/Démo (lossless).flac'
 curl -s -o "$BODY" -D "$TMP/headers" -H "Cookie: $COOKIE" "$BASE/_zip?p=/share/"
 if grep -Eq '^Content-Disposition: attachment; filename="[a-z0-9]{9}\.zip"' "$TMP/headers"; then ok "zip of /share/: $(grep -o 'filename="[^"]*"' "$TMP/headers")"; else fail "zip of /share/: no random name: $(grep -i disposition "$TMP/headers")"; fi
@@ -520,8 +547,8 @@ expect_body '/_search?q=Buck' 'value="My Stuff"'
 expect_body '/_search?q=Buck' "value=\"Amélie (2001) &amp; co's #1\""
 expect_body '/_search?q=Buck' 'value="movies/Big Buck Test (2024)"'
 # By kind: the extensions of videos, subtitle files, music and pictures.
-expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
-expect_search_count '/_search?kind=video' 3
+expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Long%20Take%20%282022%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
+expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
 expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'
@@ -811,7 +838,7 @@ expect_search '/_search?q=Buck' "$MKV_S"
 # so, nothing can be changed anywhere, browsing and downloads work as before, and the line under
 # the listings offers no upload (its writable() says no for every path).
 echo "starting a page with every folder read-only"
-docker run -d --name "$PROJECT-ro" -p "127.0.0.1:$RO_PORT:8080" --user "$(id -u):$(id -g)" -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA/movies:/data/movies:ro" -v "$DATA/share:/data/share:ro" -v "$DATA/My Stuff:/data/My Stuff:ro" -v "$DATA/$ODD:/data/$ODD:ro" indexof:test >/dev/null 2>&1 || fail 'docker run (the read-only page)'
+docker run -d --name "$PROJECT-ro" -p "127.0.0.1:$RO_PORT:8080" --user "$(id -u):$(id -g)" -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET -v "$DATA/movies:/data/movies:ro" -v "$DATA/share:/data/share:ro" -v "$DATA/My Stuff:/data/My Stuff:ro" -v "$DATA/$ODD:/data/$ODD:ro" indexof:"$TAG" >/dev/null 2>&1 || fail 'docker run (the read-only page)'
 BASE="http://127.0.0.1:$RO_PORT"
 n=0
 until [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/_login")" = 200 ]; do
@@ -861,13 +888,14 @@ for c in google-chrome google-chrome-stable chromium chromium-browser "/Applicat
   if command -v "$c" >/dev/null 2>&1 || [ -x "$c" ]; then chrome=$c; break; fi
 done
 if [ -n "$chrome" ]; then
-  "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9333 --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
+  "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port="$CDP_PORT" --user-data-dir="$TMP/chrome" about:blank >/dev/null 2>&1 &
   chrome_pid=$!
-  i=0; until curl -s http://127.0.0.1:9333/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
-  INDEXOF_PASSWORD=$PASSWORD CDP_PORT=9333 node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  i=0; until curl -s http://127.0.0.1:"$CDP_PORT"/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui-viewer.mjs" "$BASE" 'My Stuff/text' || { kill "$chrome_pid" 2>/dev/null; fail 'the viewer (tests/ui-viewer.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
-  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs)'
+  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs, tests/ui-viewer.mjs)'
 fi
 
 echo 'integration: all checks passed'

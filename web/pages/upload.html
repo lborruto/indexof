@@ -21,7 +21,7 @@ fetch('/_settings', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).cat
   // renaming, moving and deleting spare the mounted folder itself.)
   else if (settings.mounts[mountOf(here)] !== 'rw') { w.textContent = 'read-only folder'; w.hidden = false; }
   else { w.hidden = false; scpLine(); }
-  actions();
+  actions(); if (list) count();
 });
 // The same upload from a terminal: scp into this folder, to the destination from the settings
 // (user@host) and the folder's path on that host: the root from the settings (where the mounted
@@ -71,7 +71,7 @@ if (list) [...list.querySelectorAll('a')].forEach(a => {
 });
 // Above it: the search (a folder: this list as you type; Enter or Search: the search page), sort, pages of 100.
 const PAGE = 100, bar = document.createElement('pre');
-bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
+bar.innerHTML = '<input type="checkbox" id="all" title="all the lines shown"> ' + (searching ? '' : 'Search: <input id="q" size="30"> <button id="go">Search</button> ') + '<span id="n"></span>  <a href="#" id="zs">[zip selected]</a><span id="ws" hidden> <a href="#" id="ds">[delete selected]</a> <a href="#" id="ms">[move selected]</a></span> <span id="sc"></span>  Sort: <a href="#" data-k="name">name</a> <a href="#" data-k="date">date</a> <a href="#" data-k="size">size</a>  <a href="#" id="pv">&lt; prev</a> <span id="pg"></span> <a href="#" id="nx">next &gt;</a>';
 if (list) list.before(bar);
 const q = document.getElementById('q');
 let page = 0, shown = rows, key = '', dir = 1;
@@ -100,10 +100,13 @@ function measure(list) {
     }).catch(() => put('?')).finally(() => { measuring--; measure([]); });
   }
 }
-// The selection: ticked lines, downloaded as one zip (posted: a long selection would not fit in a link).
+// The selection: ticked lines, downloaded as one zip (posted: a long selection would not fit in a
+// link); deleted or moved too when every one of them could be on its own (writable()).
+const ticked = () => rows.filter(r => r.box.checked);
 function count() {
-  const n = rows.filter(r => r.box.checked).length;
+  const sel = ticked(), n = sel.length;
   document.getElementById('sc').textContent = n ? n + ' selected' : '';
+  document.getElementById('ws').hidden = !(n && sel.every(r => writable(r.path)));
 }
 function zipSelected() {
   const paths = rows.filter(r => r.box.checked).map(r => r.path);
@@ -123,11 +126,15 @@ if (list) {
     dir = key === s.dataset.k ? -dir : (s.dataset.k === 'name' ? 1 : -1);
     key = s.dataset.k;
     bar.querySelectorAll('[data-k]').forEach(o => { o.textContent = o.dataset.k + (o === s ? (dir > 0 ? ' ^' : ' v') : ''); });
-    rows.sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * dir).forEach(r => list.append(r));
+    // (Names as the viewer's previous / next has them: Episode 2 before Episode 10, case aside.)
+    const cmp = key === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : (a, b) => a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0;
+    rows.sort((a, b) => cmp(a, b) * dir).forEach(r => list.append(r));
     page = 0; show();
   });
   document.getElementById('all').onchange = e => { shown.slice(page * PAGE, page * PAGE + PAGE).forEach(r => { r.box.checked = e.target.checked; }); count(); };
   document.getElementById('zs').onclick = e => { e.preventDefault(); zipSelected(); };
+  document.getElementById('ds').onclick = e => { e.preventDefault(); delSelected(); };
+  document.getElementById('ms').onclick = e => { e.preventDefault(); moveSelected(); };
   document.getElementById('pv').onclick = e => { e.preventDefault(); if (page > 0) { page--; show(); } };
   document.getElementById('nx').onclick = e => { e.preventDefault(); if ((page + 1) * PAGE < shown.length) { page++; show(); } };
   if (q) {
@@ -138,10 +145,11 @@ if (list) {
   show();
 }
 // At the end of each line (once the settings are known): [zip] for folders, [play] [vlc] for
-// videos and sound, [view] for pictures, [rename] [delete] in a writable folder (never the
-// folder itself).
+// videos and sound, [view] for pictures and text files, [rename] [delete] in a writable folder
+// (never the folder itself). (A .ts is a video here, not TypeScript: the video test comes first.)
 const VIDEO = /\.(mp4|m4v|webm|mkv|mov|ogv|avi|ts|wmv)$/i, AUDIO = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|ac3|dts|mka)$/i;
 const IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
+const TEXT = /\.(txt|md|markdown|log|nfo|srt|vtt|ass|ssa|sub|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|sh|py|js|ts|css|html?)$/i;
 function actions() {
   rows.forEach(row => {
     const acts = [];
@@ -149,7 +157,7 @@ function actions() {
     const link = (label, href) => { const l = document.createElement('a'); l.href = href; l.textContent = '[' + label + ']'; acts.push(l); };
     if (row.folder) link('zip', '/_zip?p=' + encodeURIComponent(row.path));
     else if (VIDEO.test(row.path) || AUDIO.test(row.path)) { link('play', '/_play?f=' + encodeURIComponent(row.path)); act('vlc', () => vlc(row.path)); }
-    else if (IMAGE.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
+    else if (IMAGE.test(row.path) || TEXT.test(row.path)) link('view', '/_play?f=' + encodeURIComponent(row.path));
     if (writable(row.path)) { act('rename', () => ren(row)); act('delete', () => del(row)); }
     if (!acts.length) return;
     const end = row.lastChild;
@@ -170,9 +178,21 @@ function vlc(path) {
     msg('Opening VLC… (nothing happens? this computer needs the VLC Link helper; or [play], then "playlist")');
   });
 }
+// The requests behind [delete] and [rename], one line or the selection's: a path typed in
+// (cleaned of empty, . and .. parts) and whether it may be a new place for a line (in the same
+// mounted folder, never that folder itself); moving makes the missing folders on the way.
+const remove = row => fetch(enc(row.path), { method: 'DELETE' });
+const clean = p => '/' + p.split('/').filter(x => x && x !== '.' && x !== '..').join('/');
+const canGo = (row, to) => mountOf(to) === mountOf(row.path) && writable(to);
+async function move(row, to) {
+  const parts = to.split('/');
+  for (let i = 3; i < parts.length; i++) await fetch(enc(parts.slice(0, i).join('/')) + '/', { method: 'MKCOL' });
+  const slash = row.folder ? '/' : '';
+  return fetch(enc(row.path.replace(/\/$/, '')) + slash, { method: 'MOVE', headers: { Destination: location.origin + enc(to) + slash, Overwrite: 'F' } });
+}
 async function del(row) {
   if (!confirm('Delete ' + row.path + (row.folder ? ' and everything in it' : '') + '?')) return;
-  const r = await fetch(enc(row.path), { method: 'DELETE' });
+  const r = await remove(row);
   if (r.ok) location.reload(); else msg(row.path + ': delete failed (' + r.status + ')');
 }
 // Rename, or move (change the folders in the path; missing ones are made), inside its folder.
@@ -180,16 +200,50 @@ async function ren(row) {
   const from = row.path.replace(/\/$/, ''), m = mountOf(row.path);
   let to = prompt('Rename or move (inside /' + m + '/) to:', from);
   if (!to || to === from) return;
-  to = '/' + to.split('/').filter(p => p && p !== '.' && p !== '..').join('/');
-  if (mountOf(to) !== m || !writable(to)) { msg('stays inside /' + m + '/'); return; }
-  const parts = to.split('/');
-  for (let i = 3; i < parts.length; i++) await fetch(enc(parts.slice(0, i).join('/')) + '/', { method: 'MKCOL' });
-  const slash = row.folder ? '/' : '';
-  const r = await fetch(enc(from) + slash, { method: 'MOVE', headers: { Destination: location.origin + enc(to) + slash, Overwrite: 'F' } });
+  to = clean(to);
+  if (!canGo(row, to)) { msg('stays inside /' + m + '/'); return; }
+  const r = await move(row, to);
   if (r.ok) location.reload(); else msg(from + ': ' + (r.status === 412 ? to + ' exists already' : 'rename failed (' + r.status + ')'));
 }
+// The selection, one after the other: the listing reloaded when all went well; otherwise the
+// ones done leave it and the others are named.
+async function each(sel, verb, fn) {
+  const failed = [];
+  for (const row of sel) {
+    const why = await fn(row).catch(() => 'network error');
+    if (why) failed.push(row.path + ' (' + why + ')'); else { row.remove(); rows.splice(rows.indexOf(row), 1); }
+  }
+  if (!failed.length) { location.reload(); return; }
+  show(); count();
+  msg(verb + ' failed: ' + failed.join(', '));
+}
+async function delSelected() {
+  const sel = ticked();
+  if (!sel.length || !sel.every(r => writable(r.path))) return;
+  if (!confirm('Delete ' + sel.length + ' item' + (sel.length > 1 ? 's' : '') + '?')) return;
+  each(sel, 'delete', async row => { const r = await remove(row); return r.ok ? '' : String(r.status); });
+}
+// Into one folder (missing ones are made), inside their mounted folder: a name already there is
+// left as it is (Overwrite: F), and so is the line.
+async function moveSelected() {
+  const sel = ticked();
+  if (!sel.length || !sel.every(r => writable(r.path))) return;
+  const m = mountOf(sel[0].path), folder = searching ? sel[0].path.replace(/[^/]*\/?$/, '') : here;
+  let to = prompt('Move ' + sel.length + ' item' + (sel.length > 1 ? 's' : '') + ' into the folder (inside /' + m + '/):', folder);
+  if (!to) return;
+  to = clean(to);
+  const dest = row => (to === '/' ? '' : to) + '/' + row.path.replace(/\/$/, '').split('/').pop();
+  if (!sel.every(row => canGo(row, dest(row)))) { msg('stays inside /' + m + '/'); return; }
+  each(sel, 'move', async row => {
+    const d = dest(row);
+    if (d === row.path.replace(/\/$/, '')) return 'already there';
+    if (row.folder && (d + '/').startsWith(row.path)) return 'not into itself';
+    const r = await move(row, d);
+    return r.ok ? '' : r.status === 412 ? d + ' exists already' : String(r.status);
+  });
+}
 // Uploads: a line for each file (size, how far along, time left, [cancel]), three at a time, in
-// one queue however many times Upload is pressed.
+// one queue however many times Upload is pressed or files are dropped on the page.
 function time(s) { s = Math.round(s); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm'; }
 function human(n) { const u = ['', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + u[i]; }
 const jobs = [];
@@ -231,6 +285,9 @@ function up() {
   const input = document.getElementById('f'), files = [...input.files];
   if (!files.length) { msg('choose files first'); return; }
   input.value = '';
+  upload(files);
+}
+function upload(files) {
   let box = document.getElementById('ups');
   if (!box) {
     box = document.createElement('pre'); box.id = 'ups';
@@ -255,4 +312,39 @@ async function mk() {
   const r = await fetch(location.pathname + encodeURIComponent(n) + '/', { method: 'MKCOL' });
   if (r.ok) location.reload(); else msg('failed (' + r.status + ')');
 }
+// Drag and drop: files dropped on the page go up as if picked, in a folder where the upload line
+// shows; a folder is left out (the browser hands over no content for one). Anywhere else a drop
+// does nothing, rather than the browser leaving the page to open the file. Anything else dragged
+// (text into the search box, say) is left to the browser.
+const droppable = () => !searching && settings.mounts[mountOf(here)] === 'rw';
+let dragOff = 0;
+const dragsFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+document.addEventListener('dragover', e => {
+  if (!dragsFiles(e)) return;
+  e.preventDefault();
+  const files = droppable();
+  e.dataTransfer.dropEffect = files ? 'copy' : 'none';
+  if (!files) return;
+  // (A dashed outline while files are over the page; dragover comes every few ms, so its end is
+  // when they stop coming: leaving the window or dropping.)
+  document.body.style.outline = '2px dashed #888'; document.body.style.outlineOffset = '-4px';
+  clearTimeout(dragOff); dragOff = setTimeout(() => { document.body.style.outline = ''; }, 300);
+});
+document.addEventListener('drop', e => {
+  if (!dragsFiles(e)) return;
+  e.preventDefault();
+  clearTimeout(dragOff); document.body.style.outline = '';
+  if (!droppable() || !e.dataTransfer) return;
+  const files = [];
+  let folders = 0;
+  // (The entries are read now: the list is emptied once the event is over.)
+  const items = e.dataTransfer.items ? [...e.dataTransfer.items].filter(i => i.kind === 'file') : null;
+  if (items) items.forEach(i => {
+    const entry = i.webkitGetAsEntry && i.webkitGetAsEntry(), f = i.getAsFile();
+    if (!f || (entry && entry.isDirectory)) folders++; else files.push(f);
+  });
+  else files.push(...e.dataTransfer.files);
+  if (files.length) upload(files);
+  if (folders) msg('folders are not uploaded: zip them or use scp');
+});
 </script>

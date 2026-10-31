@@ -7,6 +7,26 @@ and `latest`; the GitHub release takes its notes from that version's section bel
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-31
+
+### Added
+
+- The home page shows the free space too: once per disk holding a mounted folder.
+- Drag and drop: files dropped on a writable folder's page are uploaded as if picked.
+- "delete selected" and "move selected" next to "zip selected", when every ticked line can be
+  changed.
+- The viewer: `[raw]`, `[download]` and `[folder]`; `[← prev]` / `[next →]` and the arrow keys
+  through the folder's files of the same kind; **play next** (music and videos go on into the
+  next file); resume where you stopped (kept in the browser); text files (notes, logs,
+  subtitles, `.nfo`, configuration, code) shown as plain text, with `[view]` in the listing.
+- Tests: a browser test of the viewer (`tests/ui-viewer.mjs`); the integration test can run
+  twice side by side (`INDEXOF_TEST_PROJECT`, `INDEXOF_TEST_TAG`, `INDEXOF_TEST_CDP_PORT`).
+
+### Fixed
+
+- An `.html` file in a mounted folder was served with the listing's upload line added at its
+  end; files are now served exactly as they are.
+
 ## [1.0.1] - 2026-10-31
 
 ### Fixed
@@ -89,8 +109,7 @@ history.
   over the whole history, Trivy on both images and the Dockerfiles; Dependabot for the base
   images and the actions.
 
-[Unreleased]: https://github.com/lborruto/indexof/commits/main
-
-[Unreleased]: https://github.com/lborruto/indexof/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/lborruto/indexof/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lborruto/indexof/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lborruto/indexof/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lborruto/indexof/releases/tag/v1.0.0
