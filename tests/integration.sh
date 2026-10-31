@@ -1,0 +1,286 @@
+#!/bin/sh
+# Integration test: builds both images, brings up a throwaway stack (compose project
+# indexof-test, published on 127.0.0.1:18099 only) on a small fixture made here, runs every
+# check, and takes everything down again (also on failure). Needs docker (with compose v2),
+# curl, python3 (to validate zips) and node (the pages' logic). Exits non-zero on the first
+# failed check, printing ok/FAIL lines.
+#   sh tests/integration.sh
+set -u
+cd "$(dirname "$0")/.." || exit 1
+. tests/lib.sh
+
+PORT=${INDEXOF_TEST_PORT:-18099}
+BASE="http://127.0.0.1:$PORT"
+PASSWORD=Test123pw
+SECRET=0123456789abcdef0123456789abcdef
+COOKIE="session=$PASSWORD"
+PROJECT=indexof-test
+
+# Everything made here goes under one temporary folder, removed at the end whatever happens.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/indexof-test.XXXXXX") || exit 1
+BODY=$TMP/body
+DATA=$TMP/data
+compose() { docker compose -p "$PROJECT" -f "$TMP/compose.yaml" "$@"; }
+cleaned=
+cleanup() {
+  [ -n "$cleaned" ] && return; cleaned=1
+  echo "cleaning up"
+  [ -f "$TMP/compose.yaml" ] && compose down -v --remove-orphans >/dev/null 2>&1
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
+
+# The fixture: movies (mounted read-only), share and "My Stuff" (writable), plus _search and
+# .hidden, which the server must refuse.
+mkdir -p "$DATA/movies/Sub Folder" "$DATA/share/pat" "$DATA/My Stuff" "$DATA/_search" "$DATA/.hidden" || exit 1
+head -c 200000 /dev/urandom >"$DATA/movies/film.mkv"
+echo 'a' >"$DATA/movies/Sub Folder/note.txt"
+echo 'hidden' >"$DATA/_search/secret.txt"
+echo 'hidden' >"$DATA/.hidden/secret.txt"
+: >"$DATA/share/pat/*"; : >"$DATA/share/pat/[ab].txt"; : >"$DATA/share/pat/a.txt"; : >"$DATA/share/pat/b.txt"
+head -c 30000000 /dev/zero >"$TMP/big.bin"
+echo 'hello' >"$TMP/hello.txt"
+
+# The stack, as the current user (so it can write into the fixture): movies mounted read-only,
+# the other folders writable for the page; everything read-only for the helper.
+uid=$(id -u); gid=$(id -g)
+web_volumes=; helper_volumes=
+for m in movies share 'My Stuff' _search .hidden; do
+  ro=; [ "$m" = movies ] && ro=:ro
+  web_volumes="$web_volumes      - \"$DATA/$m:/data/$m$ro\"
+"
+  helper_volumes="$helper_volumes      - \"$DATA/$m:/data/$m:ro\"
+"
+done
+cat >"$TMP/compose.yaml" <<EOF
+services:
+  indexof:
+    image: indexof:test
+    user: "$uid:$gid"
+    environment:
+      INDEXOF_PASSWORD: $PASSWORD
+      INDEXOF_LINK_SECRET: $SECRET
+    volumes:
+$web_volumes    ports:
+      - 127.0.0.1:$PORT:8080
+    networks: [default, helper]
+    depends_on: [indexof-helper]
+  indexof-helper:
+    image: indexof-helper:test
+    user: "$uid:$gid"
+    environment:
+      INDEXOF_LINK_SECRET: $SECRET
+    volumes:
+$helper_volumes    networks: [helper]
+networks:
+  helper:
+    internal: true
+EOF
+
+echo "building the images"
+docker build -q -t indexof:test web >/dev/null || fail 'docker build web'
+docker build -q -t indexof-helper:test helper >/dev/null || fail 'docker build helper'
+ok 'images built'
+
+# The image's own checks, before the stack: the config (rendered with the mounts, none here)
+# passes nginx -t, and a missing or short secret stops the start.
+if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=$SECRET indexof:test nginx -t >"$BODY" 2>&1; then ok 'nginx -t on the rendered config'; else fail "nginx -t: $(cat "$BODY")"; fi
+if docker run --rm -e INDEXOF_LINK_SECRET=$SECRET indexof:test nginx -t >"$BODY" 2>&1; then fail 'started without INDEXOF_PASSWORD'; fi
+if grep -q INDEXOF_PASSWORD "$BODY"; then ok 'refuses to start without INDEXOF_PASSWORD'; else fail "no INDEXOF_PASSWORD message in: $(cat "$BODY")"; fi
+if docker run --rm -e INDEXOF_PASSWORD=$PASSWORD -e INDEXOF_LINK_SECRET=short indexof:test nginx -t >"$BODY" 2>&1; then fail 'started with a short INDEXOF_LINK_SECRET'; fi
+if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'refuses to start with a short INDEXOF_LINK_SECRET'; else fail "no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
+if docker run --rm indexof-helper:test >"$BODY" 2>&1; then fail 'helper started without INDEXOF_LINK_SECRET'; fi
+if grep -q INDEXOF_LINK_SECRET "$BODY"; then ok 'helper refuses to start without INDEXOF_LINK_SECRET'; else fail "helper: no INDEXOF_LINK_SECRET message in: $(cat "$BODY")"; fi
+
+echo "starting the stack"
+compose up -d >/dev/null 2>&1 || { compose logs --no-color; fail 'compose up'; }
+n=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/_login")" = 200 ]; do
+  n=$((n + 1)); [ "$n" -lt 60 ] || { compose logs --no-color; fail 'the stack did not come up in 30 s'; }
+  sleep 0.5
+done
+ok 'stack up'
+
+# The start: the refused mounts are logged, the others become the settings.
+compose logs --no-color indexof >"$BODY" 2>&1
+if grep -q 'refused mount.*_search' "$BODY"; then ok 'start log: refused mount _search'; else fail "no 'refused mount' for _search in the start log: $(cat "$BODY")"; fi
+if grep -q 'refused mount.*\.hidden' "$BODY"; then ok 'start log: refused mount .hidden'; else fail "no 'refused mount' for .hidden in the start log"; fi
+
+# Login gating.
+expect_status -n GET / 302
+expect_status -n GET /share/ 302
+expect_status -n GET /_settings 403
+expect_status -n GET '/_size?p=/movies/' 403
+expect_status -n GET /movies/film.mkv 302
+
+# /_settings: the mounts, read-only or writable; the refused ones absent; no scp here.
+expect_status GET /_settings 200
+expect_body /_settings '"movies":"ro"'
+expect_body /_settings '"share":"rw"'
+expect_body /_settings '"My Stuff":"rw"'
+expect_body /_settings '"scp":null'
+expect_no_body /_settings '_search'
+expect_no_body /_settings '.hidden'
+expect_header /_settings 'Content-Type: application/json'
+
+# The home page lists the mounted folders, and only them; the refused ones are never served.
+expect_body / 'href="movies/"'
+expect_body / 'href="share/"'
+expect_body / 'href="My%20Stuff/"'
+expect_no_body / 'href="_search/"'
+expect_no_body / 'href=".hidden/"'
+expect_status GET /_search/ 404
+expect_status GET /_search/secret.txt 404
+expect_status GET /.hidden/ 403
+expect_status GET /.hidden/secret.txt 403
+expect_status GET /nowhere/ 404
+expect_status GET /nowhere.txt 404
+expect_status PUT /x.txt 404 -T "$TMP/hello.txt"
+expect_status MKCOL /new/ 404
+
+# A read-only folder: browse and download only.
+expect_status GET /movies 301
+expect_header /movies 'Location: /movies/'
+expect_body /movies/ 'film.mkv'
+expect_body '/movies/Sub%20Folder/' 'note.txt'
+expect_status GET /movies/film.mkv 200
+expect_header /movies/film.mkv 'Content-Security-Policy: sandbox'
+expect_status PUT /movies/x.txt 405 -T "$TMP/hello.txt"
+expect_status DELETE /movies/film.mkv 405
+expect_status MKCOL /movies/new/ 405
+expect_status MOVE /movies/film.mkv 405 -H "Destination: $BASE/movies/x.mkv"
+expect_status DELETE /movies/ 405
+expect_no_file "$DATA/movies/x.txt" 'read-only folder'
+expect_status GET /movies/.uploads/ 403
+
+# A writable folder: uploads, new folders, rename/move, delete; the folder itself never.
+expect_status PUT /share/x.txt 201 -T "$TMP/hello.txt"
+expect_body /share/x.txt 'hello'
+expect_header /share/x.txt 'Content-Security-Policy: sandbox'
+expect_status PUT '/My%20Stuff/x.txt' 201 -T "$TMP/hello.txt"
+expect_file "$DATA/My Stuff/x.txt" 'upload into My Stuff'
+expect_status MKCOL /share/new/ 201
+expect_status MOVE /share/x.txt 204 -H "Destination: $BASE/share/new/y.txt"
+expect_no_file "$DATA/share/x.txt" 'move'
+expect_file "$DATA/share/new/y.txt" 'move'
+expect_status MOVE /share/new/ 201 -H "Destination: $BASE/share/newer/"
+expect_file "$DATA/share/newer/y.txt" 'folder move'
+expect_status DELETE /share/newer/y.txt 204
+expect_status DELETE /share/newer/ 204
+expect_status DELETE '/My%20Stuff/x.txt' 204
+expect_status DELETE /share/ 405
+expect_status MOVE /share/ 405 -H "Destination: $BASE/share2/"
+expect_status DELETE '/My%20Stuff/' 405
+expect_status MOVE '/My%20Stuff/' 405 -H "Destination: $BASE/share/stuff/"
+expect_status GET /share 301
+expect_status GET /share/.uploads/ 403
+expect_status PUT /share/.secret 403 -T "$TMP/hello.txt"
+# Moves stay inside writable folders: never into a read-only or a refused one.
+expect_status PUT /share/m.txt 201 -T "$TMP/hello.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/movies/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/_search/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/%2e%2e/_search/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/../_search/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/.hidden/m.txt"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/share/"
+expect_not_2xx MOVE /share/m.txt -H "Destination: $BASE/m.txt"
+expect_file "$DATA/share/m.txt" 'refused moves'
+expect_no_file "$DATA/_search/m.txt" 'refused moves'
+expect_no_file "$DATA/.hidden/m.txt" 'refused moves'
+expect_status MOVE /share/m.txt 204 -H "Destination: $BASE/My%20Stuff/m.txt"
+expect_file "$DATA/My Stuff/m.txt" 'move between writable folders'
+expect_status DELETE '/My%20Stuff/m.txt' 204
+
+# Uploads: finished or cancelled, nothing stays in the folder's .uploads.
+expect_status PUT /share/big.bin 201 -T "$TMP/big.bin"
+expect_file "$DATA/share/big.bin" 'big upload'
+expect_dir_empty "$DATA/share/.uploads" 'after an upload'
+expect_status DELETE /share/big.bin 204
+curl -s -o /dev/null -X PUT -H "Cookie: $COOKIE" --limit-rate 2M -m 2 -T "$TMP/big.bin" "$BASE/share/cancelled.bin"
+sleep 1
+expect_no_file "$DATA/share/cancelled.bin" 'cancelled upload'
+expect_dir_empty "$DATA/share/.uploads" 'after a cancelled upload'
+
+# The helper, through the page's routes: paths of the page only, inside a mounted folder.
+expect_status GET '/_size?p=/movies/' 200
+if grep -Eq '^[0-9.]+[KMGT]?$' "$BODY"; then ok "/_size?p=/movies/ -> $(cat "$BODY")"; else fail "/_size?p=/movies/: not a size: $(cat "$BODY")"; fi
+expect_empty '/_size?p=/../etc/'
+expect_empty '/_size?p=/'
+expect_empty '/_size?p=/_search/'
+expect_empty '/_size?p=/.hidden/'
+expect_empty '/_size?p=/share/.uploads'
+expect_body '/_space?p=/share/' ' free / '
+expect_body '/_zip?p=/' 'nothing to zip'
+expect_body '/_zip?p=/_search/' 'nothing to zip'
+expect_body '/_zip?p=/../etc/' 'nothing to zip'
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/film.mkv' 'movies/Sub Folder/' 'movies/Sub Folder/note.txt'
+expect_body '/_search?q=film' 'film.mkv'
+expect_no_body '/_search?q=secret' 'secret.txt'
+expect_no_body '/_search?q=film' 'value="_search"'
+expect_no_body '/_search?q=film' 'value=".hidden"'
+expect_body '/_search?q=film' 'value="My Stuff"'
+# Names are names, never patterns: a file called * and one called [ab].txt are zipped alone.
+expect_zip '/_zip?p=/share/pat/%2A' '*'
+expect_zip '/_zip?p=/share/pat/%5Bab%5D.txt' '[ab].txt'
+
+# The player's helpers (no real video in this fixture: the path and number checks, then ffprobe's no).
+expect_status GET '/_probe?f=/movies/film.mkv' 200
+expect_status GET '/_probe?f=/../etc/passwd' 404
+expect_status GET '/_probe?f=/_search/secret.txt' 404
+expect_status GET '/_probe?f=/movies/film.mkv&k=abc' 400
+expect_body '/_sub?f=/movies/film.mkv&s=0' 'no such subtitle track'
+expect_status GET '/_sub?f=/movies/film.mkv&s=x' 400
+expect_status GET '/_sub?f=/.hidden/secret.txt&s=0' 404
+expect_body '/_remux?f=/movies/film.mkv&a=0&t=0' 'no video track'
+expect_status GET '/_remux?f=/movies/film.mkv&a=x&t=0' 400
+expect_status GET '/_remux?f=/movies/film.mkv&a=0&t=-1' 400
+
+# Temporary links: the file only, reading only.
+expect_status GET '/_vlc?f=/movies/film.mkv' 200
+link=$(tr -d '\r\n' <"$BODY")
+case "$link" in e=*\&k=*) ok "/_vlc -> $link" ;; *) fail "/_vlc: $link" ;; esac
+expect_status -n GET "/movies/film.mkv?$link" 200
+expect_status -n HEAD "/movies/film.mkv?$link" 200
+expect_status -n GET "/movies/Sub%20Folder/note.txt?$link" 302
+expect_status -n GET "/movies/film.mkv?e=${link#e=}x" 302
+expect_status -n PUT "/share/film.mkv?$link" 302 -T "$TMP/hello.txt"
+expect_status GET '/_vlc?f=/_search/secret.txt' 404
+expect_status GET '/_vlc?f=/movies/' 404
+
+# The player loads only paths of this server: f=//evil.example/x is not a path here.
+expect_status GET '/_play?f=//evil.example/x' 200
+play_src() { # the src the served player builds for ?f=$1, computed by its own script
+  node -e '
+    const html = require("fs").readFileSync(process.argv[1], "utf8"), m = html.match(/<script>([\s\S]*?)<\/script>/);
+    if (!m) { console.error("no script"); process.exit(1); }
+    const head = m[1].split("\nconst msg")[0]; // up to the player set-up: f, kind, src, title
+    const location = { search: "?f=" + encodeURIComponent(process.argv[2]), origin: process.argv[3] };
+    const document = { getElementById: () => ({}), title: "" };
+    const r = new Function("location", "document", head + "\nreturn { f, src };")(location, document);
+    console.log(r.f + "\n" + r.src);
+  ' "$BODY" "$1" "$BASE"
+}
+out=$(play_src '//evil.example/x') || fail 'the player script did not run under node'
+if [ "$out" = "/
+$BASE/" ]; then ok "player: f=//evil.example/x -> f='/', src=$BASE/"; else fail "player: f=//evil.example/x gave: $out"; fi
+out=$(play_src '/movies/film.mkv')
+if [ "$out" = "/movies/film.mkv
+$BASE/movies/film.mkv" ]; then ok "player: f=/movies/film.mkv -> src=$BASE/movies/film.mkv"; else fail "player: f=/movies/film.mkv gave: $out"; fi
+out=$(play_src '\\evil.example\x')
+if [ "$out" = "/
+$BASE/" ]; then ok "player: f=\\\\evil.example\\x -> f='/'"; else fail "player: backslash path gave: $out"; fi
+
+# The line under listings reads /_settings: writable means a writable folder, never the folder itself.
+req GET /share/ >/dev/null
+if grep -q "fetch('/_settings'" "$BODY"; then ok 'listing page reads /_settings'; else fail 'listing page does not fetch /_settings'; fi
+expect_no_body /share/ "indexOf('/share/')"
+if node -e '
+  const html = require("fs").readFileSync(process.argv[1], "utf8"), m = html.match(/^const mountOf = .*writable = .*$/m);
+  if (!m) { console.error("no writable() line in the page"); process.exit(1); }
+  const writable = new Function("settings", m[0] + "\nreturn writable;")({ mounts: { share: "rw", "My Stuff": "rw", movies: "ro" }, scp: null });
+  const want = { "/share/x": true, "/share/a/b/": true, "/My Stuff/x.txt": true, "/share/": false, "/share": false, "/movies/x": false, "/": false, "/_search": false, "/nowhere/x": false };
+  for (const p in want) if (writable(p) !== want[p]) { console.error("writable(" + JSON.stringify(p) + ") = " + writable(p)); process.exit(1); }
+' "$BODY"; then ok 'writable(): rw folders only, never the folder itself'; else fail 'writable() in the page'; fi
+
+echo 'integration: all checks passed'
