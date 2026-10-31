@@ -52,6 +52,13 @@ echo 'hidden' >"$DATA/_search/secret.txt"
 echo 'hidden' >"$DATA/.hidden/secret.txt"
 : >"$DATA/share/pat/*"; : >"$DATA/share/pat/[ab].txt"; : >"$DATA/share/pat/a.txt"; : >"$DATA/share/pat/b.txt"
 printf '1\n00:00:01,000 --> 00:00:02,000\nA subtitle file.\n' >"$DATA/My Stuff/subs/Big Buck Test (2024).srt"
+# The player's text view (tests/ui-viewer.mjs): plain text, a page (shown as its source), an old
+# .nfo in Windows-1252 (é as the one byte E9, not UTF-8) and a log of more than 1 MiB.
+mkdir -p "$DATA/My Stuff/text" || exit 1
+printf 'Plain text for the viewer.\n' >"$DATA/My Stuff/text/readme.txt"
+printf '<html><body><b>shown as source</b></body></html>\n' >"$DATA/My Stuff/text/page.html"
+printf 'Caf\351 cr\350me\n' >"$DATA/My Stuff/text/old.nfo"
+awk 'BEGIN { for (i = 1; i <= 30000; i++) printf "line %05d of a log longer than one mebibyte\n", i }' >"$DATA/My Stuff/text/big.log"
 ln -s /nowhere "$DATA/dangling"
 echo 'x' >"$DATA/file.txt"
 head -c 30000000 /dev/zero >"$TMP/big.bin"
@@ -473,7 +480,7 @@ expect_body '/_zip?p=/../etc/' 'nothing to zip'
 expect_body '/_zip?p=/share/link-to-passwd' 'nothing to zip'
 expect_body '/_zip?p=/share/a%0A/' 'nothing to zip'
 expect_body '/_zip?p=/share/.uploads/' 'nothing to zip'
-expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
+expect_zip '/_zip?p=/movies/' 'movies/' 'movies/Short (2023).mp4' 'movies/Long Take (2022).mp4' 'movies/Big Buck Test (2024)/' 'movies/Big Buck Test (2024)/Big Buck Test (2024).mkv' 'movies/Amélie (2001)/' "movies/Amélie (2001)/L'Amour & #1?.mkv"
 expect_zip '/_zip?p=/music/' 'music/' 'music/Demo Song.mp3' 'music/Démo (lossless).flac'
 curl -s -o "$BODY" -D "$TMP/headers" -H "Cookie: $COOKIE" "$BASE/_zip?p=/share/"
 if grep -Eq '^Content-Disposition: attachment; filename="[a-z0-9]{9}\.zip"' "$TMP/headers"; then ok "zip of /share/: $(grep -o 'filename="[^"]*"' "$TMP/headers")"; else fail "zip of /share/: no random name: $(grep -i disposition "$TMP/headers")"; fi
@@ -535,8 +542,8 @@ expect_body '/_search?q=Buck' 'value="My Stuff"'
 expect_body '/_search?q=Buck' "value=\"Amélie (2001) &amp; co's #1\""
 expect_body '/_search?q=Buck' 'value="movies/Big Buck Test (2024)"'
 # By kind: the extensions of videos, subtitle files, music and pictures.
-expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
-expect_search_count '/_search?kind=video' 3
+expect_search '/_search?kind=video' "$MKV_S" '/movies/Short%20%282023%29.mp4' '/movies/Long%20Take%20%282022%29.mp4' '/movies/Am%C3%A9lie%20%282001%29/L%27Amour%20%26%20%231%3F.mkv'
+expect_search_count '/_search?kind=video' 4
 expect_search '/_search?kind=audio' '/music/Demo%20Song.mp3' '/music/D%C3%A9mo%20%28lossless%29.flac'
 expect_search_count '/_search?kind=audio' 2
 expect_search '/_search?kind=images&in=pictures' '/pictures/Test%20Pattern.png' '/pictures/Gradient%20%282024%29.jpg'
@@ -880,9 +887,10 @@ if [ -n "$chrome" ]; then
   chrome_pid=$!
   i=0; until curl -s http://127.0.0.1:"$CDP_PORT"/json/version >/dev/null 2>&1 || [ $i -ge 30 ]; do sleep 0.5; i=$((i + 1)); done
   INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui.mjs" "$BASE" share movies many || { kill "$chrome_pid" 2>/dev/null; fail 'what the page shows (tests/ui.mjs)'; }
+  INDEXOF_PASSWORD=$PASSWORD CDP_PORT="$CDP_PORT" node "$(dirname "$0")/ui-viewer.mjs" "$BASE" 'My Stuff/text' || { kill "$chrome_pid" 2>/dev/null; fail 'the viewer (tests/ui-viewer.mjs)'; }
   kill "$chrome_pid" 2>/dev/null || true
 else
-  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs)'
+  echo 'skip  what the page shows: no Chrome here (tests/ui.mjs, tests/ui-viewer.mjs)'
 fi
 
 echo 'integration: all checks passed'
