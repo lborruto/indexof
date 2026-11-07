@@ -1,6 +1,13 @@
-.superpowers/
 .env
+.env.*
+!.env.example
 .DS_Store
-docs/superpowers/
 docs/screenshots/*.png
 /data/
+
+# Agent and local folders: plans, specs and worktrees stay local.
+.claude/
+.superpowers/
+docs/superpowers/
+.worktrees/
+.impeccable/

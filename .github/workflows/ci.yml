@@ -1,11 +1,14 @@
 name: CI
 
-# Every push and pull request: the shell and page lint, a secret scan of the whole history, the
-# integration test on a throwaway stack, and Trivy on both images and the repository's config
-# files. Tags are not pushes here: release.yml calls this workflow on the tagged commit.
+# Every pull request and every push to main: the shell and page lint, a secret scan of the whole
+# history, the integration test on a throwaway stack, and Trivy on both images and the
+# repository's config files. CodeQL runs from codeql.yml. Tags are not pushes here: release.yml
+# calls this workflow on the tagged commit.
+# A branch is checked through its pull request only, so each change runs once, not once for the
+# push and again for the pull request.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_call:
 
@@ -21,6 +24,37 @@ concurrency:
 # tag on 2026-10-31); the comment names the release and the date it was published. Dependabot
 # updates the version but not the date; its 14-day cooldown keeps the age rule.
 jobs:
+  # Docs-only pull requests skip the heavy jobs: they report "skipped", and the "CI result" job
+  # below (the one check to require) passes. A push (main, or a tag through release.yml) always
+  # runs everything. Only the runner's own variables are read: no event payload.
+  changes:
+    name: Changed files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: filter
+        run: |
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
+            base="$(git merge-base "origin/$GITHUB_BASE_REF" HEAD || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "code=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Anything outside these paths is code: Markdown, docs/, LICENSE and issue templates are
+          # not.
+          code="$(git diff --name-only "$base" HEAD | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/ISSUE_TEMPLATE/' || true)"
+          if [ -n "$code" ]; then echo "code=true"; else echo "code=false"; fi >>"$GITHUB_OUTPUT"
+
   lint:
     name: Lint (shellcheck, sh -n, pages, pwsh, actionlint)
     runs-on: ubuntu-24.04
@@ -96,6 +130,8 @@ jobs:
 
   test:
     name: Integration (both images, throwaway stack)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -115,6 +151,8 @@ jobs:
 
   scan:
     name: Scan (Trivy on both images and the config files)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -154,3 +192,20 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true
+
+  # The one check to require: green when every job passed or was skipped as docs-only.
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, lint, secrets, test, scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "jobs: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success | skipped) ;; *) exit 1 ;; esac
+          done
