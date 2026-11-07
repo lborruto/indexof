@@ -1,8 +1,8 @@
 name: Release
 
-# A push to main publishes the `main` tag of both images; a tag vX.Y.Z publishes X.Y.Z, X.Y and
-# latest, then creates the GitHub release from that version's section of CHANGELOG.md. Each
-# image (web/ → ghcr.io/<owner>/indexof, helper/ → ghcr.io/<owner>/indexof-helper) is built for
+# A push to main publishes the `main` tag of both images; a tag vX.Y.Z on main publishes X.Y.Z,
+# X.Y and latest, then creates the GitHub release from that version's section of CHANGELOG.md.
+# Each image (web/ → ghcr.io/<owner>/indexof, helper/ → ghcr.io/<owner>/indexof-helper) is built for
 # linux/amd64 and linux/arm64 with provenance and SBOM attestations, and the pushed digest is
 # scanned by Trivy. The page's image gets its version as INDEXOF_VERSION (X.Y.Z, or main), shown
 # in the pages' corner. The packages stay private until the owner makes them public.
@@ -25,18 +25,48 @@ concurrency:
 # updates the version but not the date; its 14-day cooldown keeps the age rule. No Actions cache
 # feeds these builds: the published images are built from scratch.
 jobs:
+  # A release is only ever made from reviewed code: the tagged commit must be on main.
+  on-main:
+    name: Tagged commit is on main
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # Asked of GitHub's API rather than with git fetch: the checkout keeps no credentials, and
+      # a private repository cannot be fetched without them.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # main's commit by its full branch name, so a tag called "main" cannot stand in for it.
+          main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" -q .object.sha)"
+          status="$(gh api "repos/$GH_REPO/compare/$main_sha...$GITHUB_SHA" -q .status)"
+          echo "compared with main ($main_sha): $status"
+          case "$status" in identical | behind) ;; *)
+            echo "::error::$GITHUB_REF_NAME points to a commit that is not on main ($status)"
+            exit 1 ;;
+          esac
+
   # A tag is checked before anything is published. On main, CI runs from the push itself.
   checks:
     name: CI on the tagged commit
     if: github.ref_type == 'tag'
+    needs: on-main
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
+  # On a tag both jobs above must pass; on main both are skipped. A failed on-main skips checks,
+  # so on-main's own result is checked too.
   build:
     name: ${{ matrix.image }} (linux/amd64, linux/arm64)
-    needs: checks
-    if: always() && (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    needs: [on-main, checks]
+    if: >-
+      always() &&
+      (needs.on-main.result == 'success' || needs.on-main.result == 'skipped') &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

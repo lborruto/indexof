@@ -43,8 +43,11 @@ After a change to the pages or the configuration, `docker compose up --build` ag
 
 ## Checks
 
-Run both before opening a pull request. CI runs the same, plus gitleaks over the whole history
-and Trivy on both images and the Dockerfiles; all four jobs must be green.
+Run both before opening a pull request. CI runs the same, plus gitleaks over the whole history,
+Trivy on both images and the Dockerfiles, and actionlint on the workflows; CodeQL scans the
+pages' JavaScript and the workflows. A pull request that changes only Markdown, `docs/`,
+`LICENSE` or the issue templates skips the integration test and Trivy. **CI result** sums up
+every job: it is the one check a ruleset needs to require.
 
     sh tests/lint.sh          # shellcheck and sh -n on every script, the pages' scripts parsed by node, the Windows installer by pwsh
     sh tests/integration.sh   # builds a throwaway stack on generated demo data and runs every check
@@ -110,13 +113,12 @@ injection attempts). It needs Docker, Compose v2 and Python 3, and leaves nothin
   (PowerShell installer), taking the allowed addresses as arguments.
 - **`tests/`**: `lint.sh`, `integration.sh` with its assertions in `lib.sh`, `make-demo.sh` and
   `screenshot.mjs` (the README's screenshots, from the demo data).
-- The design and the plan it was built from: `docs/superpowers/`.
 
 ## Releasing
 
 1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and start a new
    empty `## [Unreleased]` above it.
 2. Merge to `main`, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. `release.yml` runs CI on the tagged commit, builds both images for `linux/amd64` and
+3. `release.yml` checks that the tagged commit is on `main`, runs CI on it, builds both images for `linux/amd64` and
    `linux/arm64`, pushes `X.Y.Z`, `X.Y` and `latest` to GHCR, scans them with Trivy and creates
    the GitHub release from the changelog section. A tag without its section fails on purpose.
