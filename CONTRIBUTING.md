@@ -73,6 +73,10 @@ injection attempts). It needs Docker, Compose v2 and Python 3, and leaves nothin
   relaxed needs a conversation first.
 - **Any folder under `/data`, nothing assumed.** No folder name, host name, user name or
   address is fixed in the code: everything comes from the mounts and the `INDEXOF_*` settings.
+  `tests/lint.sh` fails on the docs' example hosts, any `*.ts.net` name and any `/Users/…` or
+  `/home/…` path in `web/`, `helper/` or `vlc-link/`. To check your own values too, copy
+  `.private-values.example` to `.private-values` (git-ignored, one regex per line) and put
+  them there, or set `INDEXOF_PRIVATE_VALUES`; never write them in a tracked file.
 - **Every fix comes with a test.** A bug fix adds the check to `tests/integration.sh` that
   fails before the fix and passes after it; a feature adds its checks the same way.
 - **Awkward names are normal.** Spaces, accents, quotes, `#`, `?`, `%`, `&`, parentheses: every

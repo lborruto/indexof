@@ -29,6 +29,10 @@ how it works, `SECURITY.md` the security model. The repository is public.
   network only and never published. Relaxing one needs a conversation (an issue) first.
 - Nothing fixed in the code: no folder name, host or user. Everything comes from the mounts and
   the `INDEXOF_*` settings (`tests/lint.sh` greps `web/`, `helper/`, `vlc-link/` for it).
+  The owner's own values (host, addresses, tailnet, user) are never written in a tracked file,
+  the lint included: they live in the git-ignored `.private-values` (format in
+  `.private-values.example`) or `INDEXOF_PRIVATE_VALUES`; without either (CI) the lint skips
+  that part and keeps its generic patterns (`*.ts.net`, `/Users/…`, `/home/…`).
 - Every fix comes with a check in `tests/integration.sh` that fails before it; a feature adds its
   checks the same way.
 - `compose.yaml` and `.env.example` agree: every variable the one uses is in the other (lint
