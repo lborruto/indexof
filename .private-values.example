@@ -1,0 +1,7 @@
+# Copy to .private-values (git-ignored) and put your own values in it: tests/lint.sh then fails
+# when one of them appears in web/, helper/ or vlc-link/. One extended regex per line (escape
+# the dots); blank lines and lines starting with # are skipped. These values are invented.
+my-nas
+192\.168\.50\.20
+tailnet-abc123
+alice

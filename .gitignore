@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+# The owner's own host names, addresses and user, for tests/lint.sh (see .private-values.example).
+.private-values
 .DS_Store
 docs/screenshots/*.png
 /data/

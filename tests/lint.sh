@@ -55,9 +55,29 @@ else
 fi
 
 # The owner's values are settings now: none of these may be fixed in the code (web/, helper/,
-# vlc-link/). The docs and the compose example (./data/share) are not code.
-fixed='debian-server|192\.168\.0\.15|tail38eefe|lucab|files\.lan|192\.168\.1\.10|example-tailnet|/data/media|/data/share'
+# vlc-link/). The docs and the compose example (./data/share) are not code. First the generic
+# patterns, which name nobody: the docs' example hosts and folders, any tailnet (*.ts.net) name
+# and any home folder (/Users/..., /home/...).
+fixed='files\.lan|192\.168\.1\.10|example-tailnet|/data/media|/data/share|[A-Za-z0-9-]+\.ts\.net|/Users/[A-Za-z0-9._-]|/home/[A-Za-z0-9._-]'
 if grep -rnE "$fixed" web helper vlc-link; then fail 'fixed hosts, users or folders in the code (above): make them settings'; else echo 'ok    no fixed hosts, users or folders in web/, helper/, vlc-link/'; fi
+
+# Then the owner's own values (host names, addresses, tailnet, user), which stay out of the
+# repository: one extended regex per line in the git-ignored .private-values at the root (blank
+# lines and # comments skipped; .private-values.example shows the format), and/or
+# INDEXOF_PRIVATE_VALUES (regexes joined by |). Neither there (CI), the check is skipped.
+private=${INDEXOF_PRIVATE_VALUES:-}
+if [ -f .private-values ]; then
+  from_file=$(grep -vE '^[[:space:]]*(#|$)' .private-values | paste -sd '|' -)
+  if [ -n "$from_file" ]; then private=${private:+$private|}$from_file; fi
+fi
+if [ -z "$private" ]; then
+  echo 'skip  private values (no .private-values file and no INDEXOF_PRIVATE_VALUES: see .private-values.example)'
+elif grep -rnqE "$private" web helper vlc-link; then
+  # The lines are not printed: the output (a CI log) would show the very values.
+  fail "private values in the code: $(grep -rlE "$private" web helper vlc-link | tr '\n' ' ')(run grep -rnE -f .private-values web helper vlc-link)"
+else
+  echo 'ok    no private values in web/, helper/, vlc-link/'
+fi
 
 # The example compose.yaml and .env.example agree: every variable the one interpolates is in
 # the other, with the two secrets, the address and the scp line's settings, and the hint for
